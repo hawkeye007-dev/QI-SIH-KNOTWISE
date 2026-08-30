@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "knotwise://regulatory/regulations.schema.json",
+  "title": "KnotWise regulations.json",
+  "description": "Structural validation only — this schema checks that every regime carries provenance (source + retrieval_date + status), per PLAN.md Phase 0's deliverable. It does not (and cannot) validate that the numeric values are correct; that is verify_regulations.py's job (PLAN.md §8.6), a later task.",
+  "type": "object",
+  "required": ["document_version", "generated_date", "regimes"],
+  "properties": {
+    "document_version": {"type": "string"},
+    "generated_date": {"type": "string", "format": "date"},
+    "provenance_note": {"type": "string"},
+    "regimes": {
+      "type": "object",
+      "required": ["cii", "fuel_eu", "nzf", "eu_ets"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["source", "retrieval_date", "status", "scope"],
+        "properties": {
+          "source": {
+            "type": "object",
+            "required": ["plan_ref", "citations"],
+            "properties": {
+              "plan_ref": {"type": "string"},
+              "citations": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": 1
+              }
+            }
+          },
+          "retrieval_date": {"type": "string", "format": "date"},
+          "status": {"type": "string"},
+          "scope": {"type": "string"}
+        }
+      }
+    }
+  }
+}

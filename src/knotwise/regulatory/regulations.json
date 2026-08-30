@@ -1,0 +1,126 @@
+{
+  "$schema": "regulations.schema.json",
+  "document_version": "phase0-v1",
+  "generated_date": "2026-08-30",
+  "provenance_note": "Values below are transcribed from docs/PLAN.md v1.2 (frozen build contract), which labels them [VERIFIED] and cites primary sources in its §11 references. This file does not represent an independent re-fetch of those primary sources in this session. docs/PLAN.md §11.7 requires every constant here to be re-verified against primary source in the final week before submission, with the retrieval date updated at that point.",
+  "regimes": {
+    "cii": {
+      "source": {
+        "plan_ref": "PLAN.md §11.1 items 2-4",
+        "citations": [
+          "MARPOL Annex VI, Regulation 28 (CII requirement); Regulation 27 (IMO DCS)",
+          "Resolution MEPC.338(76) — 2021 Guidelines on operational carbon intensity reduction factors (G3), Z-factors 2023-2026",
+          "Resolution MEPC.400(83) — amendments to G3 setting Z-factors for 2027-2030"
+        ]
+      },
+      "retrieval_date": "2026-08-30",
+      "status": "VERIFIED_PER_DOCUMENT",
+      "scope": "ships >=5000 GT on international voyages",
+      "measurement_basis": "tank-to-wake",
+      "z_factors_percent": {
+        "2023": 5,
+        "2024": 7,
+        "2025": 9,
+        "2026": 11,
+        "2027": 13.625,
+        "2028": 16.25,
+        "2029": 18.875,
+        "2030": 21.5
+      },
+      "notes": "Phase 2 (spring 2026 - spring 2028) is actively re-examining the CII metric itself, including exclusion of idle/port-waiting fuel (PLAN.md §7.6). CII has no direct financial penalty; its consequence is a SEEMP Part III corrective-action-plan obligation (PLAN.md §3.6) — see implied_price.py:cii_implied_price for how that is converted onto a $/tCO2e axis."
+    },
+    "fuel_eu": {
+      "source": {
+        "plan_ref": "PLAN.md §11.1 item 1",
+        "citations": [
+          "Regulation (EU) 2023/1805 (FuelEU Maritime) — Article 2(1) scope; Articles 20-21 banking, borrowing, pooling"
+        ]
+      },
+      "retrieval_date": "2026-08-30",
+      "status": "VERIFIED_PER_DOCUMENT (reduction_schedule and penalty formula excepted — see notes)",
+      "scope": "100% of energy on voyages between EU/EEA ports and at berth in EU/EEA ports; 50% on voyages between an EU/EEA port and a third-country port; ships >=5000 GT",
+      "measurement_basis": "well-to-wake",
+      "ghg_intensity_baseline_gco2e_per_mj": 91.16,
+      "reduction_schedule_percent": null,
+      "reduction_schedule_status": "NOT_IN_PROJECT_DOCUMENT — PLAN.md references 'its reduction schedule' without stating year-by-year percentages. Must be pulled from Regulation (EU) 2023/1805 Annex I before Phase 3/4 code depends on exact yearly targets.",
+      "penalty_formula": {
+        "status": "SECONDARY_SOURCE — Annex IV Part B text itself was not retrievable in this session (EUR-Lex PDF did not extract cleanly); the formula below is reconstructed from secondary summaries and should be cross-checked against the primary regulation text before it gates any real compliance-ledger number (Phase 4).",
+        "compliance_balance_gco2eq": "(ghg_intensity_target - ghg_intensity_actual) [gCO2eq/MJ] * energy_used [MJ]",
+        "penalty_eur": "abs(compliance_balance_gco2eq) / (ghg_intensity_actual_gco2e_per_mj * vlsfo_energy_density_mj_per_tonne) * penalty_rate_eur_per_tonne_vlsfoeq, applied only when compliance_balance_gco2eq < 0",
+        "penalty_rate_eur_per_tonne_vlsfoeq": 2400,
+        "vlsfo_energy_density_mj_per_tonne": 41000,
+        "consecutive_deficit_multiplier": "1 + (n - 1) / 10, where n = number of consecutive reporting periods in deficit for that ship",
+        "sources": [
+          "https://www.marineinsight.com/green-shipping/how-to-calculate-fuel-eu-compliance-balance-and-fuel-eu-penalty/",
+          "https://www.bettersea.tech/post/guide-how-to-calculate-fueleu-maritime-penalties"
+        ]
+      },
+      "flexibility_mechanisms": {
+        "banking": {
+          "rule": "surplus carries forward; a banked surplus does not expire"
+        },
+        "borrowing": {
+          "cap_fraction_of_limit_times_energy_consumption": 0.02,
+          "repayment_multiplier": 1.1,
+          "all_or_nothing": true,
+          "consecutive_periods_allowed": false,
+          "simultaneous_with_pooling_allowed": false
+        },
+        "pooling": {
+          "total_pool_balance_must_be": "positive",
+          "surplus_entrants_must_not_end_in_deficit": true,
+          "deficit_entrants_balance_must_not_worsen": true,
+          "single_verifier_required_for_all_members": true,
+          "enforcement_note": "Enforced exactly at the SMC particle level per docs/DESIGN_NOTE_POOLING.md §2B, never on the tensor bond as source of truth."
+        }
+      }
+    },
+    "nzf": {
+      "source": {
+        "plan_ref": "PLAN.md §11.1 item 5",
+        "citations": [
+          "IMO Net-Zero Framework — official FAQ (surplus units, remedial units, two-tier pricing)"
+        ]
+      },
+      "retrieval_date": "2026-08-30",
+      "status": "VERIFIED_PER_DOCUMENT — this is the 'approved text' position; adoption itself is pending the October 2026 IMO session (see scenarios.json for the K=5 outcomes modelled)",
+      "scope": "ships below/above the direct compliance target; global",
+      "measurement_basis": "well-to-wake",
+      "tier_prices_usd_per_tco2e": {
+        "tier_1": 100,
+        "tier_2": 380,
+        "applicable_years": [2028, 2029, 2030]
+      },
+      "surplus_units": {
+        "transferable_times": 1,
+        "transfer_mechanism": "GFI Registry",
+        "bankable_years": 2
+      }
+    },
+    "eu_ets": {
+      "source": {
+        "plan_ref": "PLAN.md §11.1 item 8",
+        "citations": [
+          "Directive 2003/87/EC as amended for maritime — scope, phase-in schedule, voyage-share rules"
+        ]
+      },
+      "retrieval_date": "2026-08-30",
+      "status": "VERIFIED_PER_DOCUMENT (EUA spot price excepted — see below; PLAN.md §11.1 item 8 flags this and the phase-in percentages as 'the least stable numbers in the document')",
+      "scope": "cargo and passenger ships >=5000 GT, regardless of flag, since 1 January 2024",
+      "measurement_basis": "well-to-wake",
+      "voyage_share_percent": {
+        "intra_eu_eea_or_at_berth": 100,
+        "eu_eea_to_third_country": 50
+      },
+      "phase_in_by_surrender_year": {
+        "2025": {"emissions_year": 2024, "percent_of_emissions_surrendered": 40},
+        "2026": {"emissions_year": 2025, "percent_of_emissions_surrendered": 70},
+        "2027": {"emissions_year": 2026, "percent_of_emissions_surrendered": 100}
+      },
+      "phase_in_2026_onward_percent": 100,
+      "eua_spot_price_usd_per_tco2e": null,
+      "eua_spot_price_status": "TARGET — a genuine market price, not fabricated here. Must be pulled live and re-verified immediately before submission per PLAN.md §11.1 item 8 and §11.7.",
+      "stacking_note": "FuelEU and EU ETS are separate instruments that stack (PLAN.md §3.2): a vessel calling at an EU port owes both, independently, on overlapping but not identical voyage-share definitions. The compliance ledger must keep them as separate line items rather than netting them."
+    }
+  }
+}
