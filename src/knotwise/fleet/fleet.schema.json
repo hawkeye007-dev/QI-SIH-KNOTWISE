@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "knotwise://fleet/fleet.schema.json",
+  "title": "KnotWise fleet.json",
+  "description": "Structural validation only — checks shape and required provenance, not that the vessel-particular numbers are correct (they are prototype-grade, see fleet.json's provenance_note).",
+  "type": "object",
+  "required": ["horizon_years", "vessel_class_defaults", "routes", "engine_fuel_compatibility", "vessels"],
+  "properties": {
+    "horizon_years": {
+      "type": "array",
+      "items": {"type": "integer"},
+      "minItems": 1
+    },
+    "vessel_class_defaults": {
+      "type": "object",
+      "required": ["A", "B", "C"],
+      "additionalProperties": {
+        "type": "object",
+        "required": ["gross_tonnage", "dwt_tonnes", "design_speed_knots", "source"],
+        "properties": {
+          "gross_tonnage": {"type": "number", "exclusiveMinimum": 0},
+          "dwt_tonnes": {"type": "number", "exclusiveMinimum": 0},
+          "design_speed_knots": {"type": "number", "exclusiveMinimum": 0},
+          "source": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "routes": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["band", "voyage_pattern"],
+        "properties": {
+          "band": {"enum": ["A", "B", "C"]},
+          "voyage_pattern": {
+            "type": "object",
+            "required": ["is_international"],
+            "properties": {
+              "is_international": {"type": "boolean"},
+              "intra_eu_eea_voyage_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+              "eu_eea_berth_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+              "eu_eea_third_country_voyage_fraction": {"type": "number", "minimum": 0, "maximum": 1}
+            }
+          }
+        }
+      }
+    },
+    "engine_fuel_compatibility": {
+      "type": "object",
+      "required": ["matrix"],
+      "properties": {
+        "matrix": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1
+          }
+        }
+      }
+    },
+    "vessels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["vessel_id", "band", "engine_type", "default_route"],
+        "properties": {
+          "vessel_id": {"type": "string", "minLength": 1},
+          "band": {"enum": ["A", "B", "C"]},
+          "engine_type": {"type": "string", "minLength": 1},
+          "default_route": {"type": "string", "minLength": 1}
+        }
+      }
+    }
+  }
+}

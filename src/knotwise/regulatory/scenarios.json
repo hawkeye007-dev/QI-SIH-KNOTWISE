@@ -4,46 +4,58 @@
   "provenance_note": "The five outcomes here are transcribed from PLAN.md §5.4 ('Regulatory leg, K=5'), which grounds them in the live IMO negotiating positions as of the current round (PLAN.md §11.2 item 15 flags this as the fastest-moving item in the document — re-check immediately before submission). This is the fixed K=5 the tensor's regulatory leg `r` (§3.1) indexes over; Phase 3 consumes this file rather than redefining the scenario set.",
   "k": 5,
   "price_axis_treatment_note": "Per PLAN.md §3.6(b): a two-tier proposal is placed on the effective-marginal-carbon-price axis as a tier-annotated range, never collapsed to a single point; a proposal with no posted price at all is a qualitative marker with its placement assumption stated explicitly; a scenario with no NZF at all requires the CII/FuelEU implied-price converter (implied_price.py) rather than a direct NZF tier read.",
+  "regulatory_overrides_note": "Each scenario's `regulatory_overrides` is a partial, regulations.json-regime-shaped dict: knotwise.regulatory.scenario_resolution.resolve_regulations_for_scenario() deep-merges it onto a copy of regulations.json's `regimes`, so component 3 (and every later consumer) reads one resolved view per scenario and never branches on scenario_id in Python. An empty {} means the scenario is exactly the base regulations.json (true for 'approved_text', since that base data already IS the approved-text position).",
   "scenarios": [
     {
       "id": "approved_text",
       "label": "NZF adopted as approved",
       "description": "Tier 1 USD 100, Tier 2 USD 380",
-      "nzf_tier_prices_usd_per_tco2e": {"tier_1": 100, "tier_2": 380},
-      "price_axis_treatment": "tier_annotated_range"
+      "price_axis_treatment": "tier_annotated_range",
+      "regulatory_overrides": {}
     },
     {
       "id": "liberia",
       "label": "Liberia-style",
       "description": "Transferable surplus units largely replacing the fund mechanism",
-      "nzf_tier_prices_usd_per_tco2e": null,
       "price_axis_treatment": "qualitative_marker",
-      "notes": "A market-design proposal, not a tariff (PLAN.md §3.6b) — no posted price exists to place on the axis. Any placement must state its assumption explicitly next to the tick mark, not bake it silently into a number."
+      "notes": "A market-design proposal, not a tariff (PLAN.md §3.6b) — no posted price exists to place on the axis. Any placement must state its assumption explicitly next to the tick mark, not bake it silently into a number.",
+      "regulatory_overrides": {
+        "nzf": {"tier_prices_usd_per_tco2e": null}
+      }
     },
     {
       "id": "tuvalu",
       "label": "Tuvalu-style",
       "description": "Tier 1 USD 300, steeper GFI trajectory",
-      "nzf_tier_prices_usd_per_tco2e": {"tier_1": 300, "tier_2": null},
       "price_axis_treatment": "tier_annotated_range",
-      "notes": "PLAN.md gives only the Tier 1 figure for this proposal; tier_2 is null here rather than guessed."
+      "notes": "PLAN.md gives only the Tier 1 figure for this proposal; tier_2 is null here rather than guessed.",
+      "regulatory_overrides": {
+        "nzf": {"tier_prices_usd_per_tco2e": {"tier_1": 300, "tier_2": null}}
+      }
     },
     {
       "id": "brazil",
       "label": "Brazil-style",
       "description": "Softened start: 3% reduction in 2029, 4% in 2030",
-      "reduction_target_percent": {"2029": 3, "2030": 4},
-      "nzf_tier_prices_usd_per_tco2e": null,
       "price_axis_treatment": "requires_implied_price_converter",
-      "notes": "This is a reduction-percentage schedule, not a posted per-tonne price — it needs the same implied-price treatment as scenario 5, not a direct tier read."
+      "notes": "This is a reduction-percentage schedule, not a posted per-tonne price — it needs the same implied-price treatment as scenario 5, not a direct tier read. The softened start also pushes NZF's own start_year back a year relative to the approved text (2029, not 2028) — per user instruction, this session.",
+      "regulatory_overrides": {
+        "nzf": {
+          "start_year": 2029,
+          "tier_prices_usd_per_tco2e": null,
+          "reduction_target_percent": {"2029": 3, "2030": 4}
+        }
+      }
     },
     {
       "id": "adoption_fails",
       "label": "Adoption fails again",
       "description": "CII, FuelEU, and EU ETS only, no NZF",
-      "nzf_tier_prices_usd_per_tco2e": null,
       "price_axis_treatment": "requires_implied_price_converter",
-      "notes": "PLAN.md §3.6(b): 'does not mean zero carbon price' — placing this on the same axis as the other four requires the implied-price converter (implied_price.py) applied to CII's corrective-action consequence and FuelEU's penalty formula. Any claim about whether this stack crosses a given switching point is provisional until that converter is run (PLAN.md §3.6(b))."
+      "notes": "PLAN.md §3.6(b): 'does not mean zero carbon price' — placing this on the same axis as the other four requires the implied-price converter (implied_price.py) applied to CII's corrective-action consequence and FuelEU's penalty formula. Any claim about whether this stack crosses a given switching point is provisional until that converter is run (PLAN.md §3.6(b)).",
+      "regulatory_overrides": {
+        "nzf": {"enabled": false}
+      }
     }
   ]
 }

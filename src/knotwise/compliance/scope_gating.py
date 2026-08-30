@@ -91,7 +91,8 @@ def eu_ets_phase_in_fraction(emissions_year: int, regulations: dict[str, Any]) -
 def _whole_voyage_regime(vessel: VesselSpec, voyage: VoyagePattern, year: int, regime: dict[str, Any]) -> RegimeApplicability:
     """CII / NZF: not fractional — applies wholly to a qualifying international voyage, or not at all."""
     applies = (
-        vessel.gross_tonnage >= regime["gt_threshold"]
+        regime.get("enabled", True)
+        and vessel.gross_tonnage >= regime["gt_threshold"]
         and voyage.is_international
         and year >= regime["start_year"]
     )
@@ -121,7 +122,8 @@ def _fractional_regime(
         + voyage.eu_eea_third_country_voyage_fraction * weight_50
     )
     applies = (
-        vessel.gross_tonnage >= regime["gt_threshold"]
+        regime.get("enabled", True)
+        and vessel.gross_tonnage >= regime["gt_threshold"]
         and year >= regime["start_year"]
         and voyage_share > 0
     )

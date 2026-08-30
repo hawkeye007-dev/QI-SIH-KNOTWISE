@@ -1,0 +1,88 @@
+{
+  "document_version": "task2r-component2-v1",
+  "generated_date": "2026-08-30",
+  "provenance_note": "Synthetic Bharat-Line-style fleet (PLAN.md §5.4/§6.2) — no real operator's data. 10 vessels: 4 Band A, 3 Band B, 3 Band C, matching docs/scope_matrix.md and PLAN.md §5.4 exactly. Vessel particulars are prototype-grade class defaults (see vessel_class_defaults[*].source), not per-vessel specifics — nothing downstream needs more precision than 'representative of a named public vessel class' for this prototype.",
+  "horizon_years": [2026, 2027, 2028, 2029, 2030],
+  "vessel_class_defaults": {
+    "A": {
+      "gross_tonnage": 45000,
+      "dwt_tonnes": 72000,
+      "design_speed_knots": 22,
+      "source": "Panamax containership class: GT ~40,000-50,000, DWT ~65,000-80,000, up to ~25 kn (midpoint figures used here). https://en.wikipedia.org/wiki/Panamax ; https://www.marineinsight.com/types-of-ships/what-are-panamax-ships/ (retrieved 2026-08-30)."
+    },
+    "B": {
+      "gross_tonnage": 22000,
+      "dwt_tonnes": 35000,
+      "design_speed_knots": 14,
+      "source": "Handysize bulk-carrier class — general industry-standard figures (GT ~20,000-28,000, DWT ~35,000, ~14 kn). Not independently re-searched this session beyond the Panamax pass above; flagged for a follow-up citation search if this figure becomes load-bearing beyond the prototype."
+    },
+    "C": {
+      "gross_tonnage": 3000,
+      "dwt_tonnes": 5000,
+      "design_speed_knots": 12,
+      "source": "Small coastal feeder / general-cargo class — general industry-standard figures. Same not-independently-re-searched caveat as Band B. GT deliberately well under the 5,000 GT regulatory threshold (docs/scope_matrix.md Band C)."
+    }
+  },
+  "routes": {
+    "india_northeurope": {
+      "band": "A",
+      "voyage_pattern": {
+        "is_international": true,
+        "eu_eea_third_country_voyage_fraction": 0.85,
+        "eu_eea_berth_fraction": 0.1
+      }
+    },
+    "india_mediterranean": {
+      "band": "A",
+      "voyage_pattern": {
+        "is_international": true,
+        "eu_eea_third_country_voyage_fraction": 0.8,
+        "eu_eea_berth_fraction": 0.15
+      }
+    },
+    "india_gulf": {
+      "band": "B",
+      "voyage_pattern": {
+        "is_international": true
+      }
+    },
+    "india_seasia": {
+      "band": "B",
+      "voyage_pattern": {
+        "is_international": true
+      }
+    },
+    "coastal_westcoast": {
+      "band": "C",
+      "voyage_pattern": {
+        "is_international": false
+      }
+    },
+    "coastal_eastcoast": {
+      "band": "C",
+      "voyage_pattern": {
+        "is_international": false
+      }
+    }
+  },
+  "engine_fuel_compatibility": {
+    "status": "Engineering-compatibility modelling choice, not a regulatory constant — deliberately kept out of regulations.json.",
+    "matrix": {
+      "conventional_hfo_scrubber": ["hfo_scrubber", "vlsfo", "mgo", "b30_blend"],
+      "dual_fuel_lng": ["vlsfo", "mgo", "lng", "b30_blend"],
+      "dual_fuel_methanol": ["vlsfo", "mgo", "methanol", "b30_blend"]
+    }
+  },
+  "vessels": [
+    {"vessel_id": "A1", "band": "A", "engine_type": "conventional_hfo_scrubber", "default_route": "india_northeurope"},
+    {"vessel_id": "A2", "band": "A", "engine_type": "conventional_hfo_scrubber", "default_route": "india_mediterranean"},
+    {"vessel_id": "A3", "band": "A", "engine_type": "dual_fuel_lng", "default_route": "india_northeurope"},
+    {"vessel_id": "A4", "band": "A", "engine_type": "dual_fuel_methanol", "default_route": "india_mediterranean"},
+    {"vessel_id": "B1", "band": "B", "engine_type": "conventional_hfo_scrubber", "default_route": "india_gulf"},
+    {"vessel_id": "B2", "band": "B", "engine_type": "conventional_hfo_scrubber", "default_route": "india_seasia"},
+    {"vessel_id": "B3", "band": "B", "engine_type": "dual_fuel_lng", "default_route": "india_gulf"},
+    {"vessel_id": "C1", "band": "C", "engine_type": "conventional_hfo_scrubber", "default_route": "coastal_westcoast"},
+    {"vessel_id": "C2", "band": "C", "engine_type": "conventional_hfo_scrubber", "default_route": "coastal_eastcoast"},
+    {"vessel_id": "C3", "band": "C", "engine_type": "conventional_hfo_scrubber", "default_route": "coastal_westcoast"}
+  ]
+}

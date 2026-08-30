@@ -4,9 +4,12 @@ Written before knotwise.compliance.scope_gating exists — see that module for
 the implementation these tests drive.
 """
 
+import copy
+
 import pytest
 
 from knotwise.compliance.scope_gating import VesselSpec, VoyagePattern, applicable_regimes
+from knotwise.regulatory.loader import load_regulations
 
 ALL_REGIMES = {"cii", "nzf", "fuel_eu", "eu_ets"}
 
@@ -161,6 +164,32 @@ class TestMatchesScopeMatrixExactly:
         assert {k: v.applies for k, v in result.items()} == {
             "cii": False, "nzf": False, "fuel_eu": False, "eu_ets": False,
         }
+
+
+class TestEnabledGate:
+    """The `enabled` flag (Task 2R component 2's scenario-override mechanism
+    depends on this) short-circuits `applies` regardless of every other
+    condition — proven here independent of scenario_resolution.py's plumbing."""
+
+    def test_disabled_regime_never_applies(self):
+        regulations = copy.deepcopy(load_regulations())
+        regulations["regimes"]["nzf"]["enabled"] = False
+        vessel = VesselSpec(gross_tonnage=55_000)  # comfortably meets every threshold
+        voyage = VoyagePattern(is_international=True)
+
+        result = applicable_regimes(vessel, voyage, year=2030, regulations=regulations)
+
+        assert result["nzf"].applies is False
+
+    def test_enabled_defaults_true_when_field_absent(self):
+        regulations = copy.deepcopy(load_regulations())
+        del regulations["regimes"]["nzf"]["enabled"]
+        vessel = VesselSpec(gross_tonnage=55_000)
+        voyage = VoyagePattern(is_international=True)
+
+        result = applicable_regimes(vessel, voyage, year=2030, regulations=regulations)
+
+        assert result["nzf"].applies is True
 
 
 class TestVoyagePatternValidation:

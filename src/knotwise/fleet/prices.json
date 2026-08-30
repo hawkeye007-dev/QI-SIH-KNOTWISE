@@ -1,0 +1,51 @@
+{
+  "document_version": "task2r-component2-v1",
+  "generated_date": "2026-08-30",
+  "provenance_note": "Fuel market data, separate from regulations.json by design (Task 2R component 2 instruction) — this is volatile market pricing, not a regulatory constant, and carries its own retrieval dates and confidence status per fuel. Re-verify all MARKET_QUOTE entries immediately before any real submission or demo, same discipline as regulations.json's own volatile figures.",
+  "fuels": {
+    "hfo_scrubber": {
+      "price_usd_per_tonne": 647,
+      "port": "Singapore",
+      "retrieval_date": "2026-08-18",
+      "status": "MARKET_QUOTE",
+      "source": "HSFO 380, Singapore, mid-August 2026 — https://www.shipuniverse.com/news/bunker-watch-august-2026-ship-fuel-prices-stay-high-as-brent-tops-90-and-mgo-breaks-1400-in-fujairah/"
+    },
+    "vlsfo": {
+      "price_usd_per_tonne": 831,
+      "port": "Singapore",
+      "retrieval_date": "2026-08-18",
+      "status": "MARKET_QUOTE",
+      "source": "https://www.shipuniverse.com/news/bunker-watch-august-2026-ship-fuel-prices-stay-high-as-brent-tops-90-and-mgo-breaks-1400-in-fujairah/"
+    },
+    "mgo": {
+      "price_usd_per_tonne": 1240,
+      "port": "Singapore",
+      "retrieval_date": "2026-08-18",
+      "status": "MARKET_QUOTE",
+      "source": "https://www.shipuniverse.com/news/bunker-watch-august-2026-ship-fuel-prices-stay-high-as-brent-tops-90-and-mgo-breaks-1400-in-fujairah/"
+    },
+    "lng": {
+      "price_usd_per_tonne": 1340,
+      "port": "Singapore",
+      "retrieval_date": "2026-08-18",
+      "status": "MARKET_QUOTE",
+      "source": "LNG bunker assessment, Singapore — https://www.shipuniverse.com/news/bunker-watch-august-2026-ship-fuel-prices-stay-high-as-brent-tops-90-and-mgo-breaks-1400-in-fujairah/"
+    },
+    "b30_blend": {
+      "price_usd_per_tonne": 979,
+      "port": "Singapore",
+      "retrieval_date": "2026-08-17",
+      "status": "PROXY",
+      "source": "https://www.shipuniverse.com/news/bunker-watch-august-2026-ship-fuel-prices-stay-high-as-brent-tops-90-and-mgo-breaks-1400-in-fujairah/",
+      "notes": "B30 not separately quoted anywhere found this session; nearest available indication is a B24 biofuel-blend price. Treat as approximate — re-verify a genuine B30 quote before this feeds anything beyond the prototype."
+    },
+    "methanol": {
+      "price_usd_per_tonne": 1200,
+      "port": null,
+      "retrieval_date": "2026-08-30",
+      "status": "ESTIMATE",
+      "source": "Green e-methanol estimate from secondary reporting, no single spot-market quote the way the other five fuels have one — https://www.hellenicshippingnews.com/switch-to-green-e-methanol-would-raise-bunker-costs-by-340/",
+      "notes": "Grey (fossil) methanol trades far cheaper (~$669/mt fuel-oil-equivalent at Rotterdam, per the same source family) but does not satisfy FuelEU/NZF's lifecycle-carbon-intensity intent; the green figure is used here as the fuel option a compliance-motivated dual-fuel-methanol vessel would actually burn."
+    }
+  }
+}

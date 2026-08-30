@@ -21,3 +21,9 @@ def _load_json(name: str) -> dict[str, Any]:
 def load_regulations() -> dict[str, Any]:
     """Load `regulations.json` (cached — the file is static package data)."""
     return _load_json("regulations.json")
+
+
+@lru_cache(maxsize=1)
+def load_scenarios() -> dict[str, Any]:
+    """Load `scenarios.json` (cached — the file is static package data)."""
+    return _load_json("scenarios.json")
