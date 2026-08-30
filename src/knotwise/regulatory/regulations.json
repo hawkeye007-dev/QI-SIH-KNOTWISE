@@ -16,6 +16,9 @@
       "retrieval_date": "2026-08-30",
       "status": "VERIFIED_PER_DOCUMENT",
       "scope": "ships >=5000 GT on international voyages",
+      "gt_threshold": 5000,
+      "start_year": 2023,
+      "start_year_status": "VERIFIED_PER_DOCUMENT — matches the first year in z_factors_percent below (MEPC.338(76) G3 Z-factors begin 2023).",
       "measurement_basis": "tank-to-wake",
       "z_factors_percent": {
         "2023": 5,
@@ -39,6 +42,14 @@
       "retrieval_date": "2026-08-30",
       "status": "VERIFIED_PER_DOCUMENT (reduction_schedule and penalty formula excepted — see notes)",
       "scope": "100% of energy on voyages between EU/EEA ports and at berth in EU/EEA ports; 50% on voyages between an EU/EEA port and a third-country port; ships >=5000 GT",
+      "gt_threshold": 5000,
+      "gt_threshold_status": "INFERRED — PLAN.md §3.4 states EU ETS shares 'the same >=5,000 GT threshold' as FuelEU, implying this figure for FuelEU itself; not separately restated with its own number in PLAN.md. Confirm directly against Regulation (EU) 2023/1805 Article 2(1) before this gates real code (see docs/scope_matrix.md).",
+      "voyage_share_percent": {
+        "intra_eu_eea_or_at_berth": 100,
+        "eu_eea_to_third_country": 50
+      },
+      "start_year": 2025,
+      "start_year_status": "PER USER INSTRUCTION / general regulation knowledge — Regulation (EU) 2023/1805's first reporting period begins 1 January 2025. Not separately restated as a standalone figure in docs/PLAN.md (which only gives the GHG-intensity baseline and mentions an unspecified 'reduction schedule' — see reduction_schedule_status below). Flagged for confirmation alongside that same gap.",
       "measurement_basis": "well-to-wake",
       "ghg_intensity_baseline_gco2e_per_mj": 91.16,
       "reduction_schedule_percent": null,
@@ -85,6 +96,9 @@
       "retrieval_date": "2026-08-30",
       "status": "VERIFIED_PER_DOCUMENT — this is the 'approved text' position; adoption itself is pending the October 2026 IMO session (see scenarios.json for the K=5 outcomes modelled)",
       "scope": "ships below/above the direct compliance target; global",
+      "gt_threshold": 5000,
+      "start_year": 2028,
+      "start_year_status": "VERIFIED_PER_DOCUMENT — matches tier_prices_usd_per_tco2e.applicable_years below; NZF obligations begin 2028 under the approved text, so the 2026-2030 case-study horizon's first two years (2026, 2027) must gate NZF applicability off, not just its tier prices.",
       "measurement_basis": "well-to-wake",
       "tier_prices_usd_per_tco2e": {
         "tier_1": 100,
@@ -107,6 +121,9 @@
       "retrieval_date": "2026-08-30",
       "status": "VERIFIED_PER_DOCUMENT (EUA spot price excepted — see below; PLAN.md §11.1 item 8 flags this and the phase-in percentages as 'the least stable numbers in the document')",
       "scope": "cargo and passenger ships >=5000 GT, regardless of flag, since 1 January 2024",
+      "gt_threshold": 5000,
+      "start_year": 2024,
+      "start_year_status": "VERIFIED_PER_DOCUMENT — matches 'since 1 January 2024' in scope above.",
       "measurement_basis": "well-to-wake",
       "voyage_share_percent": {
         "intra_eu_eea_or_at_berth": 100,

@@ -12,6 +12,8 @@ from importlib import resources
 import jsonschema
 import pytest
 
+from knotwise.regulatory.loader import load_regulations
+
 
 def _load(name: str) -> dict:
     return json.loads(resources.files("knotwise.regulatory").joinpath(name).read_text())
@@ -19,7 +21,7 @@ def _load(name: str) -> dict:
 
 @pytest.fixture(scope="module")
 def regulations() -> dict:
-    return _load("regulations.json")
+    return load_regulations()
 
 
 @pytest.fixture(scope="module")
@@ -76,6 +78,22 @@ def test_eu_ets_phase_in_matches_plan(regulations):
 def test_eua_spot_price_is_not_fabricated(regulations):
     # PLAN.md flags this as unverified/volatile — it must stay null, not a guessed number.
     assert regulations["regimes"]["eu_ets"]["eua_spot_price_usd_per_tco2e"] is None
+
+
+def test_every_regime_has_a_numeric_gt_threshold(regulations):
+    # knotwise.compliance.scope_gating reads this rather than inlining 5000 in
+    # Python — a future edit can't silently delete the field it depends on.
+    for name, regime in regulations["regimes"].items():
+        assert isinstance(regime["gt_threshold"], (int, float)), f"{name} has no gt_threshold"
+
+
+def test_every_regime_has_a_numeric_start_year(regulations):
+    # Same data-not-code discipline as gt_threshold: e.g. NZF's start_year=2028
+    # is what keeps applicable_regimes() from reporting NZF as in force during
+    # the 2026-2030 case-study horizon's first two years.
+    expected = {"cii": 2023, "fuel_eu": 2025, "nzf": 2028, "eu_ets": 2024}
+    for name, regime in regulations["regimes"].items():
+        assert regime["start_year"] == expected[name], f"{name} start_year mismatch"
 
 
 def test_scenarios_has_five_entries_matching_plan_5_4(scenarios):
