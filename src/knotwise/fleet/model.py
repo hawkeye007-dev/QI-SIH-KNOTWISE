@@ -13,7 +13,18 @@ from typing import Any
 
 from knotwise.compliance.scope_gating import VesselSpec, VoyagePattern
 
-_SPEED_BAND_FRACTIONS_OF_DESIGN_SPEED = (0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.00)
+#: Task 2R component 3 correction 2: the original 65%-100% range never let
+#: fuel cost (rising with V^2) and time cost (falling with 1/V) trade off to
+#: an interior minimum for any of the three vessel bands — the unconstrained
+#: optimum sits below 65% of design speed for all three given fleet.json's
+#: anchor-energy/charter-premium figures, so the model degenerately parked at
+#: the slowest allowed band every time. Widened down to 5% so the underlying
+#: curve has genuine curvature across its full domain; the two slowest of the
+#: 8 bands stay outside the solver's actual reach via
+#: `constraints.MIN_SPEED_BAND_INDEX`, so this widening does not by itself
+#: make an unrealistic creep speed selectable — see `test_fleet.py` and
+#: `test_objective.py::TestSpeedTradeOff` for the numeric verification.
+_SPEED_BAND_FRACTIONS_OF_DESIGN_SPEED = (0.05, 0.15, 0.30, 0.45, 0.60, 0.75, 0.90, 1.00)
 _SHORE_POWER_AVAILABLE_BANDS = {"A", "B"}  # deep-sea vessels calling major ports; ILLUSTRATIVE
 
 
@@ -38,11 +49,14 @@ def vessel_voyage_pattern(vessel: dict[str, Any], fleet: dict[str, Any]) -> Voya
 
 
 def speed_bands_knots(design_speed_knots: float) -> list[float]:
-    """8 speed bands from 65% to 100% of design speed, in 5% steps.
+    """8 speed bands from 5% to 100% of design speed (see the fractions table).
 
     ILLUSTRATIVE: PLAN.md §5.4 specifies "8 speed bands" but gives no exact
     values; this is a representative slow-steaming-to-design-speed range
     derived from each vessel's own design speed, not a fixed absolute figure.
+    Finer-grained near design speed (the operationally realistic zone) and
+    coarser toward the bottom, where only `MIN_SPEED_BAND_INDEX` and above is
+    ever actually selectable by the solver.
     """
     return [round(design_speed_knots * fraction, 2) for fraction in _SPEED_BAND_FRACTIONS_OF_DESIGN_SPEED]
 

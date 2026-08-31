@@ -47,5 +47,17 @@
       "source": "Green e-methanol estimate from secondary reporting, no single spot-market quote the way the other five fuels have one — https://www.hellenicshippingnews.com/switch-to-green-e-methanol-would-raise-bunker-costs-by-340/",
       "notes": "Grey (fossil) methanol trades far cheaper (~$669/mt fuel-oil-equivalent at Rotterdam, per the same source family) but does not satisfy FuelEU/NZF's lifecycle-carbon-intensity intent; the green figure is used here as the fuel option a compliance-motivated dual-fuel-methanol vessel would actually burn."
     }
+  },
+  "carbon_allowances": {
+    "eu_ets_eua": {
+      "price_usd_per_tco2e": 97.6,
+      "price_eur_per_tco2e": 84.2,
+      "eur_to_usd_rate": 1.1591,
+      "port": null,
+      "retrieval_date": "2026-08-30",
+      "status": "PROXY",
+      "source": "EUA spot ~€84.2/t, August 2026 — https://gmk.center/en/news/european-carbon-prices-exceeded-e80-t-at-the-start-of-august/ ; EUR/USD 1.1591, 30 Aug 2026 — https://www.exchange-rates.org/exchange-rate-history/eur-usd-2026",
+      "notes": "This is the real, dated figure for regulations.json's eu_ets.eua_spot_price_usd_per_tco2e (deliberately left null there — see its eua_spot_price_status — to avoid two sources of truth for one number). Both the EUR price and the FX rate are shown so the USD conversion is auditable, not just asserted. Re-verify before submission per PLAN.md's own volatility flag on this figure."
+    }
   }
 }

@@ -30,7 +30,10 @@
       "price_axis_treatment": "tier_annotated_range",
       "notes": "PLAN.md gives only the Tier 1 figure for this proposal; tier_2 is null here rather than guessed.",
       "regulatory_overrides": {
-        "nzf": {"tier_prices_usd_per_tco2e": {"tier_1": 300, "tier_2": null}}
+        "nzf": {
+          "tier_prices_usd_per_tco2e": {"tier_1": 300, "tier_2": null},
+          "surplus_unit_value_usd_per_tco2e": 300
+        }
       }
     },
     {
@@ -43,6 +46,7 @@
         "nzf": {
           "start_year": 2029,
           "tier_prices_usd_per_tco2e": null,
+          "surplus_unit_value_usd_per_tco2e": null,
           "reduction_target_percent": {"2029": 3, "2030": 4}
         }
       }
