@@ -96,6 +96,20 @@ def test_every_regime_has_a_numeric_start_year(regulations):
         assert regime["start_year"] == expected[name], f"{name} start_year mismatch"
 
 
+def test_fueleu_reduction_schedule_is_filled_in(regulations):
+    # Task 2R component 3 — was null/NOT_IN_PROJECT_DOCUMENT in Phase 0.
+    schedule = regulations["regimes"]["fuel_eu"]["reduction_schedule_percent"]
+    assert schedule == {"2025": 2, "2030": 6, "2035": 14.5, "2040": 31, "2045": 62, "2050": 80}
+
+
+def test_nzf_two_tier_gfi_structure(regulations):
+    nzf = regulations["regimes"]["nzf"]
+    assert nzf["reference_intensity_gco2e_per_mj"] == 93.3
+    assert nzf["base_target_reduction_percent"] == {"2028": 4, "2029": 6, "2030": 8}
+    assert nzf["direct_compliance_target_reduction_percent"] == {"2028": 17, "2029": 19, "2030": 21}
+    assert nzf["surplus_unit_value_usd_per_tco2e"] == 100
+
+
 def test_scenarios_has_five_entries_matching_plan_5_4(scenarios):
     assert scenarios["k"] == 5
     ids = {s["id"] for s in scenarios["scenarios"]}

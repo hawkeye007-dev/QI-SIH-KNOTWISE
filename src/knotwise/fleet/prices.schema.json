@@ -20,6 +20,21 @@
           "notes": {"type": "string"}
         }
       }
+    },
+    "carbon_allowances": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["price_usd_per_tco2e", "retrieval_date", "status", "source"],
+        "properties": {
+          "price_usd_per_tco2e": {"type": "number", "exclusiveMinimum": 0},
+          "port": {"type": ["string", "null"]},
+          "retrieval_date": {"type": "string", "format": "date"},
+          "status": {"enum": ["MARKET_QUOTE", "PROXY", "ESTIMATE"]},
+          "source": {"type": "string", "minLength": 1},
+          "notes": {"type": "string"}
+        }
+      }
     }
   }
 }

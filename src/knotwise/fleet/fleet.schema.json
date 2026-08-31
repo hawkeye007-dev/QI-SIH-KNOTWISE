@@ -4,7 +4,7 @@
   "title": "KnotWise fleet.json",
   "description": "Structural validation only — checks shape and required provenance, not that the vessel-particular numbers are correct (they are prototype-grade, see fleet.json's provenance_note).",
   "type": "object",
-  "required": ["horizon_years", "vessel_class_defaults", "routes", "engine_fuel_compatibility", "vessels"],
+  "required": ["horizon_years", "vessel_class_defaults", "routes", "engine_fuel_compatibility", "fuel_properties", "shore_power_model", "vessels"],
   "properties": {
     "horizon_years": {
       "type": "array",
@@ -16,12 +16,19 @@
       "required": ["A", "B", "C"],
       "additionalProperties": {
         "type": "object",
-        "required": ["gross_tonnage", "dwt_tonnes", "design_speed_knots", "source"],
+        "required": [
+          "gross_tonnage", "dwt_tonnes", "design_speed_knots", "source",
+          "anchor_daily_energy_mj_at_design_speed", "fixed_opex_usd_per_year",
+          "charter_premium_usd_per_sea_day"
+        ],
         "properties": {
           "gross_tonnage": {"type": "number", "exclusiveMinimum": 0},
           "dwt_tonnes": {"type": "number", "exclusiveMinimum": 0},
           "design_speed_knots": {"type": "number", "exclusiveMinimum": 0},
-          "source": {"type": "string", "minLength": 1}
+          "source": {"type": "string", "minLength": 1},
+          "anchor_daily_energy_mj_at_design_speed": {"type": "number", "exclusiveMinimum": 0},
+          "fixed_opex_usd_per_year": {"type": "number", "exclusiveMinimum": 0},
+          "charter_premium_usd_per_sea_day": {"type": "number", "exclusiveMinimum": 0}
         }
       }
     },
@@ -29,9 +36,11 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["band", "voyage_pattern"],
+        "required": ["band", "voyage_pattern", "distance_nm", "min_capacity_dwt_required"],
         "properties": {
           "band": {"enum": ["A", "B", "C"]},
+          "distance_nm": {"type": "number", "exclusiveMinimum": 0},
+          "min_capacity_dwt_required": {"type": "number", "exclusiveMinimum": 0},
           "voyage_pattern": {
             "type": "object",
             "required": ["is_international"],
@@ -57,6 +66,31 @@
             "minItems": 1
           }
         }
+      }
+    },
+    "fuel_properties": {
+      "type": "object",
+      "required": ["fuels"],
+      "properties": {
+        "fuels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["ghg_intensity_gco2e_per_mj", "lcv_mj_per_tonne"],
+            "properties": {
+              "ghg_intensity_gco2e_per_mj": {"type": "number", "exclusiveMinimum": 0},
+              "lcv_mj_per_tonne": {"type": "number", "exclusiveMinimum": 0}
+            }
+          }
+        }
+      }
+    },
+    "shore_power_model": {
+      "type": "object",
+      "required": ["berth_fuel_reduction_fraction", "cost_usd_per_vessel_year_when_elected"],
+      "properties": {
+        "berth_fuel_reduction_fraction": {"type": "number", "minimum": 0, "maximum": 1},
+        "cost_usd_per_vessel_year_when_elected": {"type": "number", "exclusiveMinimum": 0}
       }
     },
     "vessels": {

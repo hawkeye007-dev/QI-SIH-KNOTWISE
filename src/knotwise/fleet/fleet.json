@@ -8,24 +8,45 @@
       "gross_tonnage": 45000,
       "dwt_tonnes": 72000,
       "design_speed_knots": 22,
-      "source": "Panamax containership class: GT ~40,000-50,000, DWT ~65,000-80,000, up to ~25 kn (midpoint figures used here). https://en.wikipedia.org/wiki/Panamax ; https://www.marineinsight.com/types-of-ships/what-are-panamax-ships/ (retrieved 2026-08-30)."
+      "source": "Panamax containership class: GT ~40,000-50,000, DWT ~65,000-80,000, up to ~25 kn (midpoint figures used here). https://en.wikipedia.org/wiki/Panamax ; https://www.marineinsight.com/types-of-ships/what-are-panamax-ships/ (retrieved 2026-08-30).",
+      "anchor_daily_energy_mj_at_design_speed": 7380000,
+      "anchor_status": "ILLUSTRATIVE — derived from a representative VLSFO-equivalent daily bunker consumption of ~180 t/day at design speed (order-of-magnitude figure for this vessel class, not vessel-specific data) x VLSFO's own lcv_mj_per_tonne (see fuel_properties.vlsfo) = 180 * 41000. Stored as energy, not mass, because mass depends on which fuel is actually burned (Task 2R component 3 correction 1).",
+      "fixed_opex_usd_per_year": 3500000,
+      "fixed_opex_status": "ILLUSTRATIVE — crew/insurance/maintenance lump sum, order-of-magnitude for this vessel class.",
+      "charter_premium_usd_per_sea_day": 18000,
+      "charter_premium_status": "ILLUSTRATIVE — stated directly rather than computed, to avoid false precision; approximates fixed_opex_usd_per_year/365 (~$9,590/day) plus a charter-hire/opportunity-cost premium for additional time at sea (Task 2R component 3 correction 2)."
     },
     "B": {
       "gross_tonnage": 22000,
       "dwt_tonnes": 35000,
       "design_speed_knots": 14,
-      "source": "Handysize bulk-carrier class — general industry-standard figures (GT ~20,000-28,000, DWT ~35,000, ~14 kn). Not independently re-searched this session beyond the Panamax pass above; flagged for a follow-up citation search if this figure becomes load-bearing beyond the prototype."
+      "source": "Handysize bulk-carrier class — general industry-standard figures (GT ~20,000-28,000, DWT ~35,000, ~14 kn). Not independently re-searched this session beyond the Panamax pass above; flagged for a follow-up citation search if this figure becomes load-bearing beyond the prototype.",
+      "anchor_daily_energy_mj_at_design_speed": 2050000,
+      "anchor_status": "ILLUSTRATIVE — ~50 t/day VLSFO-equivalent x 41000 MJ/tonne. See Band A's anchor_status for the same derivation logic.",
+      "fixed_opex_usd_per_year": 1800000,
+      "fixed_opex_status": "ILLUSTRATIVE — see Band A's fixed_opex_status.",
+      "charter_premium_usd_per_sea_day": 9000,
+      "charter_premium_status": "ILLUSTRATIVE — approximates fixed_opex_usd_per_year/365 (~$4,930/day) plus a charter-hire premium. See Band A's charter_premium_status."
     },
     "C": {
       "gross_tonnage": 3000,
       "dwt_tonnes": 5000,
       "design_speed_knots": 12,
-      "source": "Small coastal feeder / general-cargo class — general industry-standard figures. Same not-independently-re-searched caveat as Band B. GT deliberately well under the 5,000 GT regulatory threshold (docs/scope_matrix.md Band C)."
+      "source": "Small coastal feeder / general-cargo class — general industry-standard figures. Same not-independently-re-searched caveat as Band B. GT deliberately well under the 5,000 GT regulatory threshold (docs/scope_matrix.md Band C).",
+      "anchor_daily_energy_mj_at_design_speed": 328000,
+      "anchor_status": "ILLUSTRATIVE — ~8 t/day VLSFO-equivalent x 41000 MJ/tonne. See Band A's anchor_status for the same derivation logic.",
+      "fixed_opex_usd_per_year": 400000,
+      "fixed_opex_status": "ILLUSTRATIVE — see Band A's fixed_opex_status.",
+      "charter_premium_usd_per_sea_day": 2500,
+      "charter_premium_status": "ILLUSTRATIVE — approximates fixed_opex_usd_per_year/365 (~$1,100/day) plus a charter-hire premium. See Band A's charter_premium_status."
     }
   },
+  "routes_status": "distance_nm and min_capacity_dwt_required are ILLUSTRATIVE (representative annual transit distance and a one-vessel-worth demand floor for the route-year) — ballparked from general geographic knowledge of the route pairs, not a routing-engine computation.",
   "routes": {
     "india_northeurope": {
       "band": "A",
+      "distance_nm": 85000,
+      "min_capacity_dwt_required": 72000,
       "voyage_pattern": {
         "is_international": true,
         "eu_eea_third_country_voyage_fraction": 0.85,
@@ -34,6 +55,8 @@
     },
     "india_mediterranean": {
       "band": "A",
+      "distance_nm": 70000,
+      "min_capacity_dwt_required": 72000,
       "voyage_pattern": {
         "is_international": true,
         "eu_eea_third_country_voyage_fraction": 0.8,
@@ -42,24 +65,32 @@
     },
     "india_gulf": {
       "band": "B",
+      "distance_nm": 45000,
+      "min_capacity_dwt_required": 35000,
       "voyage_pattern": {
         "is_international": true
       }
     },
     "india_seasia": {
       "band": "B",
+      "distance_nm": 55000,
+      "min_capacity_dwt_required": 35000,
       "voyage_pattern": {
         "is_international": true
       }
     },
     "coastal_westcoast": {
       "band": "C",
+      "distance_nm": 20000,
+      "min_capacity_dwt_required": 5000,
       "voyage_pattern": {
         "is_international": false
       }
     },
     "coastal_eastcoast": {
       "band": "C",
+      "distance_nm": 18000,
+      "min_capacity_dwt_required": 5000,
       "voyage_pattern": {
         "is_international": false
       }
@@ -72,6 +103,22 @@
       "dual_fuel_lng": ["vlsfo", "mgo", "lng", "b30_blend"],
       "dual_fuel_methanol": ["vlsfo", "mgo", "methanol", "b30_blend"]
     }
+  },
+  "fuel_properties": {
+    "status": "SECONDARY_SOURCE — FuelEU Annex II's actual per-fuel default table could not be extracted this session (paywalled/PDF-only in the sources found); figures below are from general industry knowledge, cross-checked only insofar as the fossil-fuel WtW figures land close to regulations.json's 91.16 gCO2e/MJ 2020 fleet-average baseline (itself HFO/VLSFO/MGO-dominated, so a real if partial consistency check). LNG and methanol LCVs are near-universal engineering constants (higher confidence than the WtW/carbon-intensity column). Flagged for a real Annex II pull before this feeds anything beyond the prototype.",
+    "fuels": {
+      "hfo_scrubber": {"ghg_intensity_gco2e_per_mj": 91.6, "lcv_mj_per_tonne": 40000},
+      "vlsfo": {"ghg_intensity_gco2e_per_mj": 91.16, "lcv_mj_per_tonne": 41000, "notes": "≈ regulations.json's 2020 fleet-average baseline (91.16), which is dominated by this fuel."},
+      "mgo": {"ghg_intensity_gco2e_per_mj": 90.6, "lcv_mj_per_tonne": 42700},
+      "lng": {"ghg_intensity_gco2e_per_mj": 76.0, "lcv_mj_per_tonne": 49000},
+      "b30_blend": {"ghg_intensity_gco2e_per_mj": 64, "lcv_mj_per_tonne": 39800, "notes": "30% biofuel blended into VLSFO; corrected during Task 2R component 3 review from an earlier, less careful biofuel-component assumption."},
+      "methanol": {"ghg_intensity_gco2e_per_mj": 10, "lcv_mj_per_tonne": 19900, "notes": "Renewable/green-methanol pathway, matching prices.json's own framing of the methanol option as green rather than grey (fossil) methanol. LCV (~half of conventional fuels) is a well-known, high-confidence figure independent of the carbon-intensity pathway assumption."}
+    }
+  },
+  "shore_power_model": {
+    "status": "ILLUSTRATIVE — global technology/policy parameters, not per-vessel.",
+    "berth_fuel_reduction_fraction": 0.9,
+    "cost_usd_per_vessel_year_when_elected": 150000
   },
   "vessels": [
     {"vessel_id": "A1", "band": "A", "engine_type": "conventional_hfo_scrubber", "default_route": "india_northeurope"},

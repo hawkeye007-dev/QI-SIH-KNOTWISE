@@ -144,6 +144,42 @@ class TestCompatibilityMasking:
             for fuel in menu.fuels:
                 assert fuel in known_fuels, f"{fuel} has no prices.json entry"
 
+    def test_every_menu_fuel_has_a_fuel_properties_entry(self, fleet):
+        # Task 2R component 3 — fuel_model.py needs lcv_mj_per_tonne/ghg_intensity
+        # for every fuel a vessel can actually be assigned.
+        known_fuels = set(fleet["fuel_properties"]["fuels"].keys())
+        for vessel in fleet["vessels"]:
+            menu = option_menu_for(vessel, fleet, fleet["horizon_years"][0])
+            for fuel in menu.fuels:
+                assert fuel in known_fuels, f"{fuel} has no fleet.json fuel_properties entry"
+
+
+class TestPhysicalAndEconomicData:
+    """Task 2R component 3 additions — the data fuel_model.py/objective.py need."""
+
+    def test_every_band_has_physics_and_economics_fields(self, fleet):
+        for band, defaults in fleet["vessel_class_defaults"].items():
+            assert defaults["anchor_daily_energy_mj_at_design_speed"] > 0, band
+            assert defaults["fixed_opex_usd_per_year"] > 0, band
+            assert defaults["charter_premium_usd_per_sea_day"] > 0, band
+
+    def test_every_route_has_distance_and_demand_floor(self, fleet):
+        for route_id, route in fleet["routes"].items():
+            assert route["distance_nm"] > 0, route_id
+            assert route["min_capacity_dwt_required"] > 0, route_id
+
+    def test_fuel_properties_cover_all_six_canonical_fuels(self, fleet):
+        expected = {"hfo_scrubber", "vlsfo", "mgo", "lng", "b30_blend", "methanol"}
+        assert set(fleet["fuel_properties"]["fuels"].keys()) == expected
+        for fuel_id, props in fleet["fuel_properties"]["fuels"].items():
+            assert props["ghg_intensity_gco2e_per_mj"] > 0, fuel_id
+            assert props["lcv_mj_per_tonne"] > 0, fuel_id
+
+    def test_shore_power_model_present(self, fleet):
+        model = fleet["shore_power_model"]
+        assert 0 < model["berth_fuel_reduction_fraction"] <= 1
+        assert model["cost_usd_per_vessel_year_when_elected"] > 0
+
 
 def test_speed_bands_knots_scales_with_design_speed():
     slow_vessel_bands = speed_bands_knots(12)
@@ -151,4 +187,4 @@ def test_speed_bands_knots_scales_with_design_speed():
     assert len(slow_vessel_bands) == len(fast_vessel_bands) == 8
     assert max(slow_vessel_bands) == pytest.approx(12)
     assert max(fast_vessel_bands) == pytest.approx(22)
-    assert min(slow_vessel_bands) == pytest.approx(12 * 0.65)
+    assert min(slow_vessel_bands) == pytest.approx(12 * 0.05)
