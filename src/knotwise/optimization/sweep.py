@@ -55,6 +55,37 @@ DECISION_FIELDS: tuple[str, ...] = (
 )
 
 
+def solve_scenario(
+    fleet: dict[str, Any],
+    prices: dict[str, Any],
+    scenario_id: str,
+    *,
+    seed: int = 0,
+    population_size: int = 40,
+    n_generations: int = 30,
+    tournament_size: int = 3,
+    seed_genome: Genome | None = None,
+) -> solver.SolverResult:
+    """Resolve `scenario_id`'s regulations and run the GA solver under them —
+    the "solve the fleet plan under one named K=5 regulatory scenario"
+    primitive. Shared by this module's own representative-plan solve (used to
+    compute each scenario's fleet-wide operating point) and Task 2R
+    component 5's per-scenario exposure solves, so neither has to re-resolve
+    scenario regulations or re-wire `solver.run_ga` itself.
+    """
+    regulations = resolve_regulations_for_scenario(scenario_id)
+    return solver.run_ga(
+        fleet,
+        regulations,
+        prices,
+        seed=seed,
+        population_size=population_size,
+        n_generations=n_generations,
+        tournament_size=tournament_size,
+        seed_genome=seed_genome,
+    )
+
+
 def _nzf_price_override(base_regulations: dict[str, Any], price: float) -> dict[str, Any]:
     """A synthetic resolved-regulations view: NZF's two-tier deficit price
     collapsed to one uniform `price` at both tiers.
@@ -343,13 +374,8 @@ def scenario_axis_positions(
     """
     fuel_model = fuel_model or PhysicsFuelModel()
     if representative_genome is None:
-        representative_genome = solver.run_ga(
-            fleet,
-            resolve_regulations_for_scenario("approved_text"),
-            prices,
-            seed=representative_seed,
-            population_size=30,
-            n_generations=15,
+        representative_genome = solve_scenario(
+            fleet, prices, "approved_text", seed=representative_seed, population_size=30, n_generations=15
         ).best_genome
 
     positions: list[ScenarioAxisPosition] = []

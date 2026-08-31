@@ -59,5 +59,14 @@
       "source": "EUA spot ~€84.2/t, August 2026 — https://gmk.center/en/news/european-carbon-prices-exceeded-e80-t-at-the-start-of-august/ ; EUR/USD 1.1591, 30 Aug 2026 — https://www.exchange-rates.org/exchange-rate-history/eur-usd-2026",
       "notes": "This is the real, dated figure for regulations.json's eu_ets.eua_spot_price_usd_per_tco2e (deliberately left null there — see its eua_spot_price_status — to avoid two sources of truth for one number). Both the EUR price and the FX rate are shown so the USD conversion is auditable, not just asserted. Re-verify before submission per PLAN.md's own volatility flag on this figure."
     }
+  },
+  "fx_rates": {
+    "usd_to_inr": {
+      "rate": 95.59,
+      "retrieval_date": "2026-08-30",
+      "status": "PROXY",
+      "source": "https://wise.com/us/currency-converter/usd-to-inr-rate/history",
+      "notes": "Task 2R component 5's USD->INR conversion for the Exposure Map's total capital-at-risk figure. Re-verify before any real submission or demo, same discipline as this file's other volatile market figures."
+    }
   }
 }
