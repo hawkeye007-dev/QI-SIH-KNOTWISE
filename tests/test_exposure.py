@@ -12,7 +12,9 @@ from knotwise.optimization.exposure import (
     compute_dwt_by_route_year,
     compute_exposure,
     detect_exposed_decisions,
+    detect_exposed_from_value_maps,
     exposure_result_to_dict,
+    majority_values_from_per_seed_genomes,
     price_fueleu_election,
     price_route_change,
     price_shore_power,
@@ -159,6 +161,91 @@ class TestStabilityFromPerSeedGenomes:
         unstable = stability_from_per_seed_genomes(genomes_by_seed)
         assert ("A1", 2028, "fuel_id") not in unstable
         assert ("A2", 2029, "fuel_id") in unstable
+
+
+class TestMajorityValuesFromPerSeedGenomes:
+    """The looser drill-down criterion (review item 1a) -- purely additive
+    to `stability_from_per_seed_genomes`, which stays the unanimous
+    headline unchanged. 2 of 3 seeds agreeing is a majority; a 3-way split
+    (or a 1-1 tie with 2 seeds) reaches no majority at all."""
+
+    def test_unanimous_agreement_is_also_a_majority(self):
+        gene = _gene("A1", 2028, fuel_id="hfo_scrubber")
+        genomes_by_seed = {0: [gene], 1: [gene], 2: [gene]}
+        majority = majority_values_from_per_seed_genomes(genomes_by_seed)
+        assert majority[("A1", 2028, "fuel_id")] == "hfo_scrubber"
+
+    def test_two_of_three_seeds_reach_a_majority(self):
+        genomes_by_seed = {
+            0: [_gene("A1", 2028, fuel_id="hfo_scrubber")],
+            1: [_gene("A1", 2028, fuel_id="hfo_scrubber")],
+            2: [_gene("A1", 2028, fuel_id="b30_blend")],  # dissents
+        }
+        majority = majority_values_from_per_seed_genomes(genomes_by_seed)
+        assert majority[("A1", 2028, "fuel_id")] == "hfo_scrubber"
+
+    def test_a_three_way_split_reaches_no_majority(self):
+        genomes_by_seed = {
+            0: [_gene("A1", 2028, fuel_id="hfo_scrubber")],
+            1: [_gene("A1", 2028, fuel_id="vlsfo")],
+            2: [_gene("A1", 2028, fuel_id="b30_blend")],
+        }
+        majority = majority_values_from_per_seed_genomes(genomes_by_seed)
+        assert ("A1", 2028, "fuel_id") not in majority
+
+    def test_a_two_seed_tie_reaches_no_majority(self):
+        genomes_by_seed = {
+            0: [_gene("A1", 2028, fuel_id="hfo_scrubber")],
+            1: [_gene("A1", 2028, fuel_id="vlsfo")],
+        }
+        majority = majority_values_from_per_seed_genomes(genomes_by_seed)
+        assert ("A1", 2028, "fuel_id") not in majority
+
+    def test_every_key_reaching_majority_is_also_a_stability_superset(self):
+        # Anything unanimous (stability_from_per_seed_genomes says stable)
+        # must also show up with a majority value -- majority is strictly
+        # looser, never stricter.
+        genomes_by_seed = {
+            0: [_gene("A1", 2028, fuel_id="hfo_scrubber"), _gene("A2", 2029, fuel_id="vlsfo")],
+            1: [_gene("A1", 2028, fuel_id="hfo_scrubber"), _gene("A2", 2029, fuel_id="mgo")],
+            2: [_gene("A1", 2028, fuel_id="hfo_scrubber"), _gene("A2", 2029, fuel_id="vlsfo")],
+        }
+        unstable = stability_from_per_seed_genomes(genomes_by_seed)
+        majority = majority_values_from_per_seed_genomes(genomes_by_seed)
+        assert ("A1", 2028, "fuel_id") not in unstable
+        assert majority[("A1", 2028, "fuel_id")] == "hfo_scrubber"
+        # A2/2029 is unstable under unanimous (vlsfo/mgo/vlsfo disagree) but
+        # 2 of 3 seeds (vlsfo) still reach a majority.
+        assert ("A2", 2029, "fuel_id") in unstable
+        assert majority[("A2", 2029, "fuel_id")] == "vlsfo"
+
+
+class TestDetectExposedFromValueMaps:
+    def test_flags_a_key_that_differs_across_scenarios(self, fleet):
+        value_maps = {
+            "approved_text": {("A1", 2028, "fuel_id"): "hfo_scrubber"},
+            "tuvalu": {("A1", 2028, "fuel_id"): "b30_blend"},
+        }
+        exposed = detect_exposed_from_value_maps(value_maps, fleet)
+        assert len(exposed) == 1
+        assert exposed[0]["values_by_scenario"] == {"approved_text": "hfo_scrubber", "tuvalu": "b30_blend"}
+
+    def test_a_key_missing_from_one_scenario_is_not_comparable(self, fleet):
+        # No majority reached in "tuvalu" for this key -> not reportable,
+        # even though the two scenarios that do have a value disagree.
+        value_maps = {
+            "approved_text": {("A1", 2028, "fuel_id"): "hfo_scrubber"},
+            "tuvalu": {},
+        }
+        assert detect_exposed_from_value_maps(value_maps, fleet) == []
+
+    def test_band_c_is_excluded(self, fleet):
+        c_vessel_id = next(v["vessel_id"] for v in fleet["vessels"] if v["band"] == "C")
+        value_maps = {
+            "approved_text": {(c_vessel_id, 2028, "fuel_id"): "hfo_scrubber"},
+            "tuvalu": {(c_vessel_id, 2028, "fuel_id"): "b30_blend"},
+        }
+        assert detect_exposed_from_value_maps(value_maps, fleet) == []
 
 
 class TestPriceRouteChange:
@@ -419,11 +506,35 @@ class TestComputeExposureEndToEnd:
         for check in result.consistency_checks:
             assert check.consistent in (True, False, None)
 
+    def test_majority_band_never_duplicates_the_headline(self, full_exposure):
+        # Review item 1a: majority is purely additive drill-down, never a
+        # replacement for or overlap with the unanimous headline tier.
+        result, _ = full_exposure
+        headline_keys = {(d.vessel_id, d.year, d.decision) for d in result.per_decision_deltas}
+        majority_keys = {(d.vessel_id, d.year, d.decision) for d in result.majority_band_decisions}
+        assert headline_keys.isdisjoint(majority_keys)
+
+    def test_majority_unstable_is_a_subset_of_headline_unstable(self, full_exposure):
+        # Majority is a strictly looser bar than unanimous, so anything that
+        # can't even reach a majority also fails the stricter unanimous bar.
+        result, _ = full_exposure
+        headline_unstable = {(d.vessel_id, d.year, d.decision) for d in result.unstable_decisions}
+        majority_unstable = {(d.vessel_id, d.year, d.decision) for d in result.majority_unstable_decisions}
+        assert majority_unstable <= headline_unstable
+
+    def test_majority_band_decisions_are_priced_and_band_c_free(self, full_exposure, fleet):
+        result, _ = full_exposure
+        band_by_vessel_id = {v["vessel_id"]: v["band"] for v in fleet["vessels"]}
+        for decision in result.majority_band_decisions:
+            assert band_by_vessel_id[decision.vessel_id] != "C"
+            assert decision.capital_at_risk_status
+            assert decision.capital_at_risk_notes
+
     def test_reproducible_from_seeds(self, fleet, prices):
         sweep = run_sweep(
             fleet, prices, price_grid=(0, 400, 800), seed=3, population_size=16, cold_generations=15, warm_generations=6
         )
-        kwargs = {"seeds": (3, 4), "population_size": 20, "n_generations": 20}
+        kwargs = {"seeds": (3, 4, 5), "population_size": 20, "n_generations": 20}
         result_a = compute_exposure(fleet, prices, sweep, **kwargs)
         result_b = compute_exposure(fleet, prices, sweep, **kwargs)
         assert [d.capital_at_risk_usd for d in result_a.per_decision_deltas] == pytest.approx(
@@ -433,6 +544,9 @@ class TestComputeExposureEndToEnd:
         assert result_a.capex_exposure.total_usd == pytest.approx(result_b.capex_exposure.total_usd)
         assert {(d.vessel_id, d.year, d.decision) for d in result_a.unstable_decisions} == {
             (d.vessel_id, d.year, d.decision) for d in result_b.unstable_decisions
+        }
+        assert {(d.vessel_id, d.year, d.decision) for d in result_a.majority_band_decisions} == {
+            (d.vessel_id, d.year, d.decision) for d in result_b.majority_band_decisions
         }
 
 
@@ -460,6 +574,13 @@ class TestOutputSerialization:
         assert "must not be summed" in payload["per_decision_deltas"]["description"].lower()
 
         assert payload["unstable_decisions"]["count"] == len(result.unstable_decisions)
+
+        assert payload["summary"]["majority_band_decision_count"] == len(result.majority_band_decisions)
+        assert payload["summary"]["majority_unstable_decision_count"] == len(result.majority_unstable_decisions)
+        assert "description" in payload["majority_band"]
+        assert len(payload["majority_band"]["decisions"]) == len(result.majority_band_decisions)
+        assert payload["majority_band"]["unstable_decisions"]["count"] == len(result.majority_unstable_decisions)
+        assert len(payload["majority_band_consistency_checks"]) == len(result.majority_band_consistency_checks)
 
         assert payload["fx"]["status"]
         assert payload["fx"]["retrieval_date"]

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import copy
 import time
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from itertools import pairwise
@@ -573,6 +574,115 @@ def run_sweep(
     )
 
 
+@dataclass(frozen=True)
+class BracketActivity:
+    """How much flip activity the sweep found in one grid bracket
+    (fleet-wide — every vessel-year-decision, not just any one scenario's
+    concern). The scenario ticks are then placed against this landscape by
+    `scenario_flip_context`."""
+
+    price_low_usd_per_tco2e: float
+    price_high_usd_per_tco2e: float
+    switching_point_count: int
+    decisions: tuple[str, ...]
+
+
+def flip_activity_by_bracket(sweep_result: SweepResult) -> list[BracketActivity]:
+    """One entry per adjacent pair of grid points, with how many switching
+    points (any vessel-year-decision) the sweep found there — e.g. the
+    $100-125/tCO2e bracket where this fleet's HFO-scrubber vessels' fuel
+    choice actually crosses over (see sweep.py's own derivation notes)."""
+    by_bracket: dict[tuple[float, float], list[SwitchingPoint]] = defaultdict(list)
+    for switching_point in sweep_result.switching_points:
+        by_bracket[(switching_point.price_low_usd_per_tco2e, switching_point.price_high_usd_per_tco2e)].append(
+            switching_point
+        )
+    return [
+        BracketActivity(
+            price_low_usd_per_tco2e=low,
+            price_high_usd_per_tco2e=high,
+            switching_point_count=len(by_bracket.get((low, high), [])),
+            decisions=tuple(
+                sorted(
+                    f"{sp.vessel_id}/{sp.year}/{sp.decision}: {sp.from_value} -> {sp.to_value}"
+                    for sp in by_bracket.get((low, high), [])
+                )
+            ),
+        )
+        for low, high in pairwise(sweep_result.price_grid)
+    ]
+
+
+@dataclass(frozen=True)
+class ScenarioFlipContext:
+    """Where one scenario's axis position sits relative to the sweep's
+    flip-active regions — if the K=5 proposals cluster where the plan is
+    flat (no switching points nearby), "the live proposals differ less than
+    their headline prices suggest" is the honest reading of a low exposed
+    count, not evidence the stability filter is too strict."""
+
+    scenario_id: str
+    operating_point_usd_per_tco2e: float | None
+    bracket: tuple[float, float] | None
+    bracket_is_flip_active: bool | None
+    bracket_switching_point_count: int
+    notes: str
+
+
+def scenario_flip_context(sweep_result: SweepResult) -> list[ScenarioFlipContext]:
+    """Places every scenario tick from `sweep_result.scenario_ticks` against
+    `flip_activity_by_bracket`'s fleet-wide flip-activity landscape."""
+    activity = flip_activity_by_bracket(sweep_result)
+    contexts: list[ScenarioFlipContext] = []
+    for tick in sweep_result.scenario_ticks:
+        point = tick.operating_point_usd_per_tco2e
+        if point is None:
+            contexts.append(
+                ScenarioFlipContext(
+                    scenario_id=tick.scenario_id,
+                    operating_point_usd_per_tco2e=None,
+                    bracket=None,
+                    bracket_is_flip_active=None,
+                    bracket_switching_point_count=0,
+                    notes="No computed axis position (qualitative marker or not computed) -- not placeable on the grid.",
+                )
+            )
+            continue
+
+        containing = next(
+            (b for b in activity if b.price_low_usd_per_tco2e <= point <= b.price_high_usd_per_tco2e), None
+        )
+        if containing is None:
+            contexts.append(
+                ScenarioFlipContext(
+                    scenario_id=tick.scenario_id,
+                    operating_point_usd_per_tco2e=point,
+                    bracket=None,
+                    bracket_is_flip_active=None,
+                    bracket_switching_point_count=0,
+                    notes=f"Axis position {point} falls outside the swept grid -- not placeable.",
+                )
+            )
+            continue
+
+        active = containing.switching_point_count > 0
+        contexts.append(
+            ScenarioFlipContext(
+                scenario_id=tick.scenario_id,
+                operating_point_usd_per_tco2e=point,
+                bracket=(containing.price_low_usd_per_tco2e, containing.price_high_usd_per_tco2e),
+                bracket_is_flip_active=active,
+                bracket_switching_point_count=containing.switching_point_count,
+                notes=(
+                    f"Sits in a flip-active bracket ({containing.switching_point_count} switching point(s) here)."
+                    if active
+                    else "Sits in a flat bracket -- no decision flips at this price anywhere in the sweep."
+                ),
+            )
+        )
+    return contexts
+
+
 def sweep_result_to_dict(result: SweepResult) -> dict[str, Any]:
     """A fully JSON-serializable view of `result` for `sweep_results.json` —
     grid -> configurations -> switching points -> scenario ticks, every
@@ -617,6 +727,16 @@ def sweep_result_to_dict(result: SweepResult) -> dict[str, Any]:
         ],
         "switching_points": [asdict(sp) for sp in result.switching_points],
         "scenario_ticks": [asdict(tick) for tick in result.scenario_ticks],
+        "flip_activity_by_bracket": [asdict(b) for b in flip_activity_by_bracket(result)],
+        "scenario_flip_context": {
+            "description": (
+                "Where each scenario tick sits relative to the sweep's flip-active regions -- if the "
+                "K=5 proposals cluster in a flat bracket (no switching points nearby), that's the honest "
+                "reading of a low exposed-decision count ('the live proposals differ less than their "
+                "headline prices suggest'), not evidence the stability filter is too strict."
+            ),
+            "contexts": [asdict(c) for c in scenario_flip_context(result)],
+        },
     }
 
 

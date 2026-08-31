@@ -71,7 +71,7 @@ capture) reported rather than hidden.
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass, replace
 from itertools import combinations
 from typing import Any
@@ -186,11 +186,14 @@ class ExposureResult:
     capex_exposure: CapexExposure
     per_decision_deltas: list[ExposedDecision]
     unstable_decisions: list[UnstableDecision]
+    majority_band_decisions: list[ExposedDecision]
+    majority_unstable_decisions: list[UnstableDecision]
     fx_rate_usd_to_inr: float
     fx_status: str
     fx_retrieval_date: str
     fx_notes: str
     consistency_checks: list[ConsistencyCheck]
+    majority_band_consistency_checks: list[ConsistencyCheck]
 
 
 @dataclass(frozen=True)
@@ -198,13 +201,18 @@ class ScenarioStabilitySolve:
     """One scenario's result across every stability seed: the best (lowest-
     cost) seed's genome/cost stand in as "the" scenario-optimal plan (same
     role `solve_scenario`'s single result played before), plus which
-    vessel-year decisions the seeds didn't all agree on."""
+    vessel-year decisions the seeds didn't all agree on (`unstable_keys`,
+    the unanimous/headline criterion) and, separately, the value at least a
+    majority of seeds agreed on where one exists (`majority_values`, the
+    looser drill-down criterion — PLAN §8.3(c)'s stability flag reported at
+    two thresholds rather than loosened outright, per review)."""
 
     scenario_id: str
     best_genome: Genome
     best_total_usd: float
     per_seed_total_usd: dict[int, float]
     unstable_keys: frozenset[tuple[str, int, str]]
+    majority_values: dict[tuple[str, int, str], Any]
 
 
 def stability_from_per_seed_genomes(genomes_by_seed: dict[int, Genome]) -> frozenset[tuple[str, int, str]]:
@@ -226,6 +234,37 @@ def stability_from_per_seed_genomes(genomes_by_seed: dict[int, Genome]) -> froze
             if len(values) > 1:
                 unstable_keys.add((vessel_id, year, field_name))
     return frozenset(unstable_keys)
+
+
+def majority_values_from_per_seed_genomes(genomes_by_seed: dict[int, Genome]) -> dict[tuple[str, int, str], Any]:
+    """The looser drill-down criterion (review item 1a): for each
+    (vessel_id, year, decision) key, the value at least a strict majority
+    of seeds agree on -- present in the returned dict only where such a
+    majority exists (e.g. 2 of 3 seeds, not a 3-way split). A superset of
+    what `stability_from_per_seed_genomes` would call stable (unanimous
+    agreement is also a majority), so `len(majority_values) >=
+    total_keys - len(stability_from_per_seed_genomes(...))`.
+
+    Deliberately a *separate* function from the unanimous one rather than a
+    parameterized generalization of it: the unanimous path stays exactly as
+    reviewed and tested (item 1's "do NOT loosen the filter" — it remains
+    the headline), and this is purely additive.
+    """
+    seeds = list(genomes_by_seed)
+    majority_threshold = len(seeds) // 2 + 1
+    genes_by_seed_by_key = {
+        seed: {(gene.vessel_id, gene.year): gene for gene in genome} for seed, genome in genomes_by_seed.items()
+    }
+    keys = list(genes_by_seed_by_key[seeds[0]])
+
+    majority_values: dict[tuple[str, int, str], Any] = {}
+    for vessel_id, year in keys:
+        for field_name in DECISION_FIELDS:
+            values = [getattr(genes_by_seed_by_key[seed][(vessel_id, year)], field_name) for seed in seeds]
+            value, count = Counter(values).most_common(1)[0]
+            if count >= majority_threshold:
+                majority_values[(vessel_id, year, field_name)] = value
+    return majority_values
 
 
 def solve_scenario_with_stability(
@@ -258,7 +297,9 @@ def solve_scenario_with_stability(
     }
     best_seed = min(results_by_seed, key=lambda s: results_by_seed[s].best_total_usd)
     best_result = results_by_seed[best_seed]
-    unstable_keys = stability_from_per_seed_genomes({seed: r.best_genome for seed, r in results_by_seed.items()})
+    genomes_by_seed = {seed: r.best_genome for seed, r in results_by_seed.items()}
+    unstable_keys = stability_from_per_seed_genomes(genomes_by_seed)
+    majority_values = majority_values_from_per_seed_genomes(genomes_by_seed)
 
     return ScenarioStabilitySolve(
         scenario_id=scenario_id,
@@ -266,6 +307,7 @@ def solve_scenario_with_stability(
         best_total_usd=best_result.best_total_usd,
         per_seed_total_usd={seed: r.best_total_usd for seed, r in results_by_seed.items()},
         unstable_keys=unstable_keys,
+        majority_values=majority_values,
     )
 
 
@@ -319,6 +361,38 @@ def detect_exposed_decisions(
                         "values_by_scenario": values_by_scenario,
                     }
                 )
+    return exposed
+
+
+def detect_exposed_from_value_maps(
+    values_by_scenario_by_key: dict[str, dict[tuple[str, int, str], Any]], fleet: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Like `detect_exposed_decisions`, generalized to any per-scenario
+    (vessel_id, year, decision) -> value mapping rather than full genomes —
+    used for the majority-agreement drill-down band (review item 1a), where
+    a scenario may have no value at all for a key (no majority reached
+    among its seeds). A key is only comparable, and therefore only
+    reportable, where *every* scenario has a value for it; Band C is
+    excluded for the same reason as `detect_exposed_decisions`.
+    """
+    band_by_vessel_id = {v["vessel_id"]: v["band"] for v in fleet["vessels"]}
+    scenario_ids = list(values_by_scenario_by_key)
+    all_keys: set[tuple[str, int, str]] = set()
+    for value_map in values_by_scenario_by_key.values():
+        all_keys |= set(value_map)
+
+    exposed: list[dict[str, Any]] = []
+    for vessel_id, year, field_name in sorted(all_keys):
+        if band_by_vessel_id.get(vessel_id) == "C":
+            continue
+        key = (vessel_id, year, field_name)
+        if not all(key in values_by_scenario_by_key[sid] for sid in scenario_ids):
+            continue  # no majority reached in at least one scenario -- not comparable
+        values_by_scenario = {sid: values_by_scenario_by_key[sid][key] for sid in scenario_ids}
+        if len(set(values_by_scenario.values())) > 1:
+            exposed.append(
+                {"vessel_id": vessel_id, "year": year, "decision": field_name, "values_by_scenario": values_by_scenario}
+            )
     return exposed
 
 
@@ -667,6 +741,44 @@ def compute_exposure(
         for decision in stable_exposed
     ]
 
+    # --- Majority band (review item 1a): "do NOT loosen the filter" -- the
+    # unanimous computation above is untouched and stays the headline. This
+    # is a purely additive, looser drill-down tier: a key needs only a
+    # strict majority of seeds to agree, in every scenario, to be
+    # comparable. Deduplicated against the headline set so nothing is
+    # double-reported across the two tiers.
+    all_possible_keys = {
+        (gene.vessel_id, gene.year, field_name) for gene in baseline_genome for field_name in DECISION_FIELDS
+    }
+    majority_values_by_scenario = {sid: solve.majority_values for sid, solve in solves_by_scenario.items()}
+    majority_candidate_exposed = detect_exposed_from_value_maps(majority_values_by_scenario, fleet)
+    headline_keys = {(d["vessel_id"], d["year"], d["decision"]) for d in stable_exposed}
+    majority_band = [
+        d for d in majority_candidate_exposed if (d["vessel_id"], d["year"], d["decision"]) not in headline_keys
+    ]
+    priced_majority_band = [
+        price_exposed_decision(
+            decision,
+            baseline_genome,
+            baseline_by_key,
+            vessels_by_id,
+            fleet,
+            prices,
+            base_regulations,
+            fuel_model,
+            dwt_by_route_year,
+        )
+        for decision in majority_band
+    ]
+    global_majority_unstable_keys = {
+        key for key in all_possible_keys if any(key not in solve.majority_values for solve in solves_by_scenario.values())
+    }
+    majority_unstable_decisions = [
+        UnstableDecision(vessel_id=vessel_id, year=year, decision=decision)
+        for vessel_id, year, decision in sorted(global_majority_unstable_keys)
+        if band_by_vessel_id.get(vessel_id) != "C"
+    ]
+
     # --- (1) Plan spread: PLAN §3.1's actual headline number. ---
     scenario_totals_usd = {sid: solve.best_total_usd for sid, solve in solves_by_scenario.items()}
     max_scenario_id = max(scenario_totals_usd, key=scenario_totals_usd.get)
@@ -695,6 +807,9 @@ def compute_exposure(
             switching_point
         )
     consistency_checks = run_consistency_checks(priced_decisions, ticks_by_scenario, switching_points_by_key)
+    majority_band_consistency_checks = run_consistency_checks(
+        priced_majority_band, ticks_by_scenario, switching_points_by_key
+    )
 
     return ExposureResult(
         scenario_ids=scenario_ids,
@@ -705,11 +820,14 @@ def compute_exposure(
         capex_exposure=capex_exposure,
         per_decision_deltas=priced_decisions,
         unstable_decisions=unstable_decisions,
+        majority_band_decisions=priced_majority_band,
+        majority_unstable_decisions=majority_unstable_decisions,
         fx_rate_usd_to_inr=fx["rate"],
         fx_status=fx["status"],
         fx_retrieval_date=fx["retrieval_date"],
         fx_notes=fx.get("notes", ""),
         consistency_checks=consistency_checks,
+        majority_band_consistency_checks=majority_band_consistency_checks,
     )
 
 
@@ -760,6 +878,8 @@ def exposure_result_to_dict(result: ExposureResult) -> dict[str, Any]:
         "summary": {
             "stable_exposed_decision_count": len(result.per_decision_deltas),
             "unstable_decision_count": len(result.unstable_decisions),
+            "majority_band_decision_count": len(result.majority_band_decisions),
+            "majority_unstable_decision_count": len(result.majority_unstable_decisions),
             "plan_spread_usd": result.plan_spread.spread_usd,
             "plan_spread_inr": result.plan_spread.spread_inr,
             "capex_exposure_usd": result.capex_exposure.total_usd,
@@ -802,10 +922,26 @@ def exposure_result_to_dict(result: ExposureResult) -> dict[str, Any]:
             "count": len(result.unstable_decisions),
             "description": (
                 "Decisions where the stability_seeds disagreed on the optimal value within at least one "
-                "scenario -- excluded from every count above (PLAN §8.3(c)): a decision the search itself "
-                "can't reproduce isn't a finding about the vote, it's GA noise."
+                "scenario -- excluded from every headline count above (PLAN §8.3(c)): a decision the "
+                "search itself can't reproduce isn't a finding about the vote, it's GA noise."
             ),
             "decisions": [asdict(d) for d in result.unstable_decisions],
+        },
+        "majority_band": {
+            "description": (
+                "Review item 1a: the unanimous criterion above stays the headline (NOT loosened). This is "
+                "a separate, additive, looser drill-down tier -- a key needs only a strict majority of "
+                "stability_seeds to agree (e.g. 2 of 3), independently in every scenario, to be reported "
+                "here. Deduplicated against per_decision_deltas: nothing appears in both. Read alongside "
+                "majority_band_consistency_checks and treat with correspondingly less confidence than the "
+                "headline tier -- a majority is a real signal, not the same bar as unanimous agreement."
+            ),
+            "decisions": [_exposed_decision_to_dict(d) for d in result.majority_band_decisions],
+            "unstable_decisions": {
+                "count": len(result.majority_unstable_decisions),
+                "description": "Decisions where not even a majority of stability_seeds agreed, in at least one scenario.",
+                "decisions": [asdict(d) for d in result.majority_unstable_decisions],
+            },
         },
         "fx": {
             "usd_to_inr_rate": result.fx_rate_usd_to_inr,
@@ -814,6 +950,7 @@ def exposure_result_to_dict(result: ExposureResult) -> dict[str, Any]:
             "notes": result.fx_notes,
         },
         "consistency_checks": [asdict(c) for c in result.consistency_checks],
+        "majority_band_consistency_checks": [asdict(c) for c in result.majority_band_consistency_checks],
     }
 
 
@@ -836,6 +973,9 @@ if __name__ == "__main__":
     write_exposure_results("exposure.json", _result)
     print(
         f"wrote exposure.json: {len(_result.per_decision_deltas)} stable exposed decisions "
-        f"({len(_result.unstable_decisions)} unstable), plan_spread=₹{_result.plan_spread.spread_inr:,.0f}, "
+        f"({len(_result.unstable_decisions)} unstable), "
+        f"{len(_result.majority_band_decisions)} majority-band decisions "
+        f"({len(_result.majority_unstable_decisions)} majority-unstable), "
+        f"plan_spread=₹{_result.plan_spread.spread_inr:,.0f}, "
         f"capex_exposure=₹{_result.capex_exposure.total_inr:,.0f}"
     )
