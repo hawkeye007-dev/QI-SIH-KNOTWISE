@@ -101,6 +101,28 @@ def _build_toolbox(
     return toolbox
 
 
+def _seeded_population(
+    toolbox: base.Toolbox,
+    fleet: dict[str, Any],
+    seed_genome: Genome,
+    population_size: int,
+    rng: random.Random,
+) -> list:
+    """A warm-started initial population: `seed_genome` itself, a handful of
+    its near neighbors (small mutations), and the rest freshly random — a
+    genuine head start without collapsing all diversity onto one point (Task
+    2R component 4, item 2: "warm-start each solve from the neighboring grid
+    point's best genome")."""
+    n_neighbors = min(population_size // 4, 10)
+    population = [creator.KnotWiseIndividual(seed_genome)]
+    population += [
+        creator.KnotWiseIndividual(mutate_genome(seed_genome, fleet, rng, n_mutations=3))
+        for _ in range(n_neighbors)
+    ]
+    population += [toolbox.individual() for _ in range(population_size - len(population))]
+    return population
+
+
 def run_ga(
     fleet: dict[str, Any],
     regulations: dict[str, Any],
@@ -112,25 +134,35 @@ def run_ga(
     crossover_prob: float = 0.6,
     mutation_prob: float = 0.3,
     tournament_size: int = 3,
+    seed_genome: Genome | None = None,
 ) -> SolverResult:
     """Evolve a population of genomes to (approximately) minimize total fleet cost.
 
     Deterministic for a fixed `seed`: every random draw in this run — initial
     population, tournament selection, crossover point, mutation slot/value —
     comes from one `random.Random(seed)` instance, so two calls with the same
-    seed (and the same `fleet`/`regulations`/`prices`) return an identical
-    `SolverResult`.
+    seed (and the same `fleet`/`regulations`/`prices`/`seed_genome`) return an
+    identical `SolverResult`.
 
     Generational replacement (no elitism in the population itself), with a
     `HallOfFame` tracking the best individual seen across every generation —
     the standard way to avoid losing a good solution to an unlucky
     generation's crossover/mutation without also needing to hand-tune which
     individuals survive a generation.
+
+    `seed_genome`, when given, warm-starts the initial population around it
+    instead of drawing every individual fresh — pair this with a smaller
+    `n_generations` for a cheap re-solve after a small change to the inputs
+    (e.g. the next grid point in a carbon-price sweep) rather than a cold
+    solve from scratch.
     """
     rng = random.Random(seed)
     toolbox = _build_toolbox(fleet, regulations, prices, rng, tournament_size)
 
-    population = toolbox.population(n=population_size)
+    if seed_genome is not None:
+        population = _seeded_population(toolbox, fleet, seed_genome, population_size, rng)
+    else:
+        population = toolbox.population(n=population_size)
     for individual in population:
         individual.fitness.values = toolbox.evaluate(individual)
 

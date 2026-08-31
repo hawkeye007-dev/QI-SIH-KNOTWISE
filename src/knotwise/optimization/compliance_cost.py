@@ -88,6 +88,46 @@ def eu_ets_cost(
     )
 
 
+@dataclass(frozen=True)
+class NzfGaps:
+    """The two-tier gap decomposition `nzf_cost` prices — factored out so a
+    consumer that needs the gaps themselves (Task 2R component 4's
+    switching-point sweep computes each scenario's fleet-wide operating point
+    from these) doesn't re-derive the base/compliance-target arithmetic."""
+
+    gap_tier1_gco2e_per_mj: float
+    gap_tier2_gco2e_per_mj: float
+    gap_surplus_gco2e_per_mj: float
+    base_target_gco2e_per_mj: float
+    compliance_target_gco2e_per_mj: float
+
+
+def nzf_gaps(nzf_regime: dict[str, Any], year: int, actual_ghg_intensity_gco2e_per_mj: float) -> NzfGaps | None:
+    """The NZF two-tier gap decomposition for one vessel-year, or `None` when
+    `year` has no two-tier trajectory data for this regime.
+
+    - Tier 1: the gap between the direct compliance target and the (less
+      strict) base target.
+    - Tier 2: any further gap beyond the base target.
+    - Surplus: over-performance beyond the direct compliance target.
+    """
+    year_key = str(year)
+    if year_key not in nzf_regime["base_target_reduction_percent"]:
+        return None
+
+    reference = nzf_regime["reference_intensity_gco2e_per_mj"]
+    base_target = reference * (1 - nzf_regime["base_target_reduction_percent"][year_key] / 100)
+    compliance_target = reference * (1 - nzf_regime["direct_compliance_target_reduction_percent"][year_key] / 100)
+
+    return NzfGaps(
+        gap_tier1_gco2e_per_mj=max(min(actual_ghg_intensity_gco2e_per_mj, base_target) - compliance_target, 0.0),
+        gap_tier2_gco2e_per_mj=max(actual_ghg_intensity_gco2e_per_mj - base_target, 0.0),
+        gap_surplus_gco2e_per_mj=max(compliance_target - actual_ghg_intensity_gco2e_per_mj, 0.0),
+        base_target_gco2e_per_mj=base_target,
+        compliance_target_gco2e_per_mj=compliance_target,
+    )
+
+
 def nzf_cost(
     nzf_regime: dict[str, Any],
     applicability: RegimeApplicability,
@@ -98,14 +138,10 @@ def nzf_cost(
     """NZF's two-tier GFI structure: deficit priced at Tier 1/Tier 2, surplus valued
     at its own decoupled price (Task 2R component 3 correction 3).
 
-    - Tier 1: the gap between the direct compliance target and the (less
-      strict) base target.
-    - Tier 2: any further gap beyond the base target.
-    - Surplus: over-performance beyond the direct compliance target, valued
-      via `surplus_unit_value_usd_per_tco2e` — a field deliberately decoupled
-      from `tier_prices_usd_per_tco2e` (see that field's own note in
-      regulations.json/scenarios.json for why: tying them together left the
-      `liberia` scenario indistinguishable from `adoption_fails`).
+    Surplus is valued via `surplus_unit_value_usd_per_tco2e` — a field
+    deliberately decoupled from `tier_prices_usd_per_tco2e` (see that field's
+    own note in regulations.json/scenarios.json for why: tying them together
+    left the `liberia` scenario indistinguishable from `adoption_fails`).
 
     Either side is $0 when its resolved-scenario price is `null` (e.g.
     Brazil's deficit side, explicitly deferred to the not-built-this-pass
@@ -114,17 +150,10 @@ def nzf_cost(
     if not applicability.applies:
         return CostBreakdown(0.0, "NOT_APPLICABLE", "NZF does not apply (disabled, or year is before its start_year).")
 
-    year_key = str(year)
-    if year_key not in nzf_regime["base_target_reduction_percent"]:
+    gaps = nzf_gaps(nzf_regime, year, actual_ghg_intensity_gco2e_per_mj)
+    if gaps is None:
         return CostBreakdown(0.0, "NOT_APPLICABLE", f"No NZF two-tier trajectory data for {year}.")
 
-    reference = nzf_regime["reference_intensity_gco2e_per_mj"]
-    base_target = reference * (1 - nzf_regime["base_target_reduction_percent"][year_key] / 100)
-    compliance_target = reference * (1 - nzf_regime["direct_compliance_target_reduction_percent"][year_key] / 100)
-
-    gap_tier1 = max(min(actual_ghg_intensity_gco2e_per_mj, base_target) - compliance_target, 0.0)
-    gap_tier2 = max(actual_ghg_intensity_gco2e_per_mj - base_target, 0.0)
-    gap_surplus = max(compliance_target - actual_ghg_intensity_gco2e_per_mj, 0.0)
     tonnes = energy_used_mj / 1e6
 
     tier_prices = nzf_regime["tier_prices_usd_per_tco2e"]
@@ -134,15 +163,15 @@ def nzf_cost(
         # (e.g. Tuvalu, whose tier_2 is null rather than guessed): that tier's
         # gap then contributes $0, not a crash, and not a silently-assumed price.
         if tier_prices.get("tier_1") is not None:
-            deficit_cost += gap_tier1 * tier_prices["tier_1"]
+            deficit_cost += gaps.gap_tier1_gco2e_per_mj * tier_prices["tier_1"]
         if tier_prices.get("tier_2") is not None:
-            deficit_cost += gap_tier2 * tier_prices["tier_2"]
+            deficit_cost += gaps.gap_tier2_gco2e_per_mj * tier_prices["tier_2"]
         deficit_cost *= tonnes
 
     surplus_price = nzf_regime["surplus_unit_value_usd_per_tco2e"]
     surplus_value = 0.0
     if surplus_price is not None:
-        surplus_value = gap_surplus * tonnes * surplus_price
+        surplus_value = gaps.gap_surplus_gco2e_per_mj * tonnes * surplus_price
 
     net = deficit_cost - surplus_value
     status = (
@@ -160,7 +189,8 @@ def nzf_cost(
         status=status,
         notes=(
             f"deficit_cost={deficit_cost:.2f}, surplus_value={surplus_value:.2f} "
-            f"(base_target={base_target:.3f}, compliance_target={compliance_target:.3f} gCO2e/MJ)"
+            f"(base_target={gaps.base_target_gco2e_per_mj:.3f}, "
+            f"compliance_target={gaps.compliance_target_gco2e_per_mj:.3f} gCO2e/MJ)"
         ),
     )
 

@@ -13,8 +13,8 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-from knotwise.compliance.scope_gating import VoyagePattern, applicable_regimes
-from knotwise.fleet.model import option_menu_for, vessel_spec
+from knotwise.compliance.scope_gating import RegimeApplicability, VoyagePattern, applicable_regimes
+from knotwise.fleet.model import OptionMenu, option_menu_for, vessel_spec
 from knotwise.optimization.compliance_cost import (
     FuelEuYearInput,
     cii_cost,
@@ -55,6 +55,87 @@ def _combine(costs: list[CostBreakdown], label: str) -> CostBreakdown:
         total,
         weakest.status,
         f"{label}: aggregated over {len(costs)} vessel-years; least-confident component status shown.",
+    )
+
+
+@dataclass(frozen=True)
+class VesselYearFacts:
+    """The regulation- and physics-facing facts for one vessel-year.
+
+    Factored out of `evaluate()`'s own first pass (rather than left inline)
+    so a second consumer can reuse the menu/shore-power/applicability
+    derivation without re-deriving it: Task 2R component 4's carbon-price
+    sweep needs exactly these facts — actual GHG intensity, the regulated
+    energy each regime sees, and each regime's applicability — to compute a
+    scenario's fleet-wide operating point (PLAN.md §3.6b), and would
+    otherwise have had to duplicate this logic rather than call it.
+    """
+
+    menu: OptionMenu
+    speed_knots: float
+    tonnes: float
+    energy_mj: float
+    shore_power_elected: bool
+    shore_power_extra_cost_usd: float
+    applicability: dict[str, RegimeApplicability]
+    actual_ghg_intensity_gco2e_per_mj: float
+    regulated_energy_mj: float
+    raw_fuel_eu_balance_gco2eq: float
+
+
+def vessel_year_facts(
+    gene: Any,
+    vessel: dict[str, Any],
+    fleet: dict[str, Any],
+    regulations: dict[str, Any],
+    fuel_model: FuelModel,
+) -> VesselYearFacts:
+    """Derive one vessel-year's physics and regulatory-applicability facts.
+
+    Pure function of its arguments — no cost/price lookups here, so it's
+    usable by anything that needs the regulation-facing numbers without also
+    needing `prices.json` (e.g. the sweep's scenario-axis-position code,
+    which prices nothing itself).
+    """
+    menu = option_menu_for(vessel, fleet, gene.year)
+    route = fleet["routes"][gene.route_id]
+    speed_knots = menu.speed_bands_knots[gene.speed_band_index]
+
+    raw_tonnes = fuel_model.fuel_consumption_tonnes(vessel, fleet, gene.year, speed_knots, gene.fuel_id, gene.route_id)
+    raw_energy_mj = fuel_model.annual_energy_mj(vessel, fleet, speed_knots, gene.route_id)
+
+    shore_power_elected = gene.shore_power and menu.shore_power_available
+    if shore_power_elected:
+        berth_fraction = route["voyage_pattern"].get("eu_eea_berth_fraction", 0.0)
+        reduction = fleet["shore_power_model"]["berth_fuel_reduction_fraction"]
+        factor = 1 - berth_fraction * reduction
+        tonnes = raw_tonnes * factor
+        energy_mj = raw_energy_mj * factor
+        shore_power_extra_cost = fleet["shore_power_model"]["cost_usd_per_vessel_year_when_elected"]
+    else:
+        tonnes = raw_tonnes
+        energy_mj = raw_energy_mj
+        shore_power_extra_cost = 0.0
+
+    voyage_pattern = VoyagePattern(**route["voyage_pattern"])
+    applicability = applicable_regimes(vessel_spec(vessel, fleet), voyage_pattern, gene.year, regulations)
+
+    actual_intensity = fleet["fuel_properties"]["fuels"][gene.fuel_id]["ghg_intensity_gco2e_per_mj"]
+    regulated_energy_mj = energy_mj * applicability["fuel_eu"].effective_obligation_fraction
+    target = fueleu_target_intensity(regulations["regimes"]["fuel_eu"], gene.year)
+    raw_balance = fueleu_compliance_balance_gco2eq(target, actual_intensity, regulated_energy_mj)
+
+    return VesselYearFacts(
+        menu=menu,
+        speed_knots=speed_knots,
+        tonnes=tonnes,
+        energy_mj=energy_mj,
+        shore_power_elected=shore_power_elected,
+        shore_power_extra_cost_usd=shore_power_extra_cost,
+        applicability=applicability,
+        actual_ghg_intensity_gco2e_per_mj=actual_intensity,
+        regulated_energy_mj=regulated_energy_mj,
+        raw_fuel_eu_balance_gco2eq=raw_balance,
     )
 
 
@@ -102,75 +183,56 @@ def evaluate(
         vessel = vessels_by_id[vessel_id]
         band_defaults = fleet["vessel_class_defaults"][vessel["band"]]
         for gene in genes:
-            menu = option_menu_for(vessel, fleet, gene.year)
-            route = fleet["routes"][gene.route_id]
-            speed_knots = menu.speed_bands_knots[gene.speed_band_index]
-
-            raw_tonnes = fuel_model.fuel_consumption_tonnes(
-                vessel, fleet, gene.year, speed_knots, gene.fuel_id, gene.route_id
-            )
-            raw_energy_mj = fuel_model.annual_energy_mj(vessel, fleet, speed_knots, gene.route_id)
-
-            shore_power_elected = gene.shore_power and menu.shore_power_available
-            if shore_power_elected:
-                berth_fraction = route["voyage_pattern"].get("eu_eea_berth_fraction", 0.0)
-                reduction = fleet["shore_power_model"]["berth_fuel_reduction_fraction"]
-                factor = 1 - berth_fraction * reduction
-                tonnes = raw_tonnes * factor
-                energy_mj = raw_energy_mj * factor
-                shore_power_extra_cost = fleet["shore_power_model"]["cost_usd_per_vessel_year_when_elected"]
-            else:
-                tonnes = raw_tonnes
-                energy_mj = raw_energy_mj
-                shore_power_extra_cost = 0.0
-
-            voyage_pattern = VoyagePattern(**route["voyage_pattern"])
-            applicability = applicable_regimes(vessel_spec(vessel, fleet), voyage_pattern, gene.year, regulations)
-
-            actual_intensity = fleet["fuel_properties"]["fuels"][gene.fuel_id]["ghg_intensity_gco2e_per_mj"]
+            facts = vessel_year_facts(gene, vessel, fleet, regulations, fuel_model)
 
             fuel_price_entry = prices["fuels"][gene.fuel_id]
             fuel_costs.append(
                 CostBreakdown(
-                    tonnes * fuel_price_entry["price_usd_per_tonne"],
+                    facts.tonnes * fuel_price_entry["price_usd_per_tonne"],
                     fuel_price_entry["status"],
                     f"{vessel_id}/{gene.year} fuel={gene.fuel_id}",
                 )
             )
             opex_costs.append(
                 CostBreakdown(
-                    band_defaults["fixed_opex_usd_per_year"] + shore_power_extra_cost,
+                    band_defaults["fixed_opex_usd_per_year"] + facts.shore_power_extra_cost_usd,
                     "ILLUSTRATIVE",
                     f"{vessel_id}/{gene.year}",
                 )
             )
             time_costs.append(
                 CostBreakdown(
-                    band_defaults["charter_premium_usd_per_sea_day"] * sea_days(fleet, gene.route_id, speed_knots),
+                    band_defaults["charter_premium_usd_per_sea_day"]
+                    * sea_days(fleet, gene.route_id, facts.speed_knots),
                     "ILLUSTRATIVE",
                     f"{vessel_id}/{gene.year}",
                 )
             )
-            cii_costs.append(cii_cost(applicability["cii"]))
+            cii_costs.append(cii_cost(facts.applicability["cii"]))
             eu_ets_costs.append(
                 eu_ets_cost(
-                    applicability["eu_ets"], actual_intensity, energy_mj, prices["carbon_allowances"]["eu_ets_eua"]
+                    facts.applicability["eu_ets"],
+                    facts.actual_ghg_intensity_gco2e_per_mj,
+                    facts.energy_mj,
+                    prices["carbon_allowances"]["eu_ets_eua"],
                 )
             )
             nzf_costs.append(
-                nzf_cost(regulations["regimes"]["nzf"], applicability["nzf"], gene.year, actual_intensity, energy_mj)
+                nzf_cost(
+                    regulations["regimes"]["nzf"],
+                    facts.applicability["nzf"],
+                    gene.year,
+                    facts.actual_ghg_intensity_gco2e_per_mj,
+                    facts.energy_mj,
+                )
             )
-
-            regulated_energy_mj = energy_mj * applicability["fuel_eu"].effective_obligation_fraction
-            target = fueleu_target_intensity(regulations["regimes"]["fuel_eu"], gene.year)
-            raw_balance = fueleu_compliance_balance_gco2eq(target, actual_intensity, regulated_energy_mj)
 
             context[(vessel_id, gene.year)] = {
                 "gene": gene,
-                "fuel_eu_applicability": applicability["fuel_eu"],
-                "raw_balance": raw_balance,
-                "actual_intensity": actual_intensity,
-                "regulated_energy_mj": regulated_energy_mj,
+                "fuel_eu_applicability": facts.applicability["fuel_eu"],
+                "raw_balance": facts.raw_fuel_eu_balance_gco2eq,
+                "actual_intensity": facts.actual_ghg_intensity_gco2e_per_mj,
+                "regulated_energy_mj": facts.regulated_energy_mj,
             }
             dwt_by_route_year[(gene.route_id, gene.year)] += band_defaults["dwt_tonnes"]
 
