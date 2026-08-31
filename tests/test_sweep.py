@@ -131,6 +131,24 @@ class TestScenarioAxisPositions:
         eu_ets = next(p for p in scenario_positions if p.scenario_id == "eu_ets_reference")
         assert eu_ets.low_usd_per_tco2e == prices["carbon_allowances"]["eu_ets_eua"]["price_usd_per_tco2e"]
 
+    def test_every_computed_axis_position_falls_inside_the_default_grid(self, scenario_positions):
+        # A computed position outside [min(DEFAULT_PRICE_GRID),
+        # max(DEFAULT_PRICE_GRID)] would make its bet distances unmeasurable:
+        # component 5's consistency check could never find a switching point
+        # near it, because the sweep never explores that far. Scenario 5's
+        # implied price (~$700-750/tCO2e) is exactly why the grid was
+        # extended from $600 to $1000 -- this guards against it drifting
+        # back out, or a future scenario's implied price landing outside it.
+        grid_low, grid_high = min(DEFAULT_PRICE_GRID), max(DEFAULT_PRICE_GRID)
+        for position in scenario_positions:
+            if position.operating_point_usd_per_tco2e is None:
+                continue  # qualitative marker / not computed -- nothing to place on the grid
+            assert grid_low <= position.operating_point_usd_per_tco2e <= grid_high, (
+                f"{position.scenario_id}'s operating point "
+                f"{position.operating_point_usd_per_tco2e} falls outside the swept grid "
+                f"[{grid_low}, {grid_high}]"
+            )
+
 
 class TestRunSweep:
     def test_switching_points_exist_for_at_least_one_decision(self, full_sweep):

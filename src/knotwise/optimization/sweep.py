@@ -38,9 +38,16 @@ from knotwise.regulatory.implied_price import fueleu_implied_price
 from knotwise.regulatory.loader import load_scenarios
 from knotwise.regulatory.scenario_resolution import resolve_regulations_for_scenario
 
-#: $0-600 in $25 steps — a demo-settings default, not a fixed contract;
-#: callers may pass any grid via `run_sweep`'s `price_grid`.
-DEFAULT_PRICE_GRID: tuple[float, ...] = tuple(range(0, 601, 25))
+#: $0-1000 in $25 steps — a demo-settings default, not a fixed contract;
+#: callers may pass any grid via `run_sweep`'s `price_grid`. Extends to 1000
+#: (not 600) specifically so it covers scenario 5's ("adoption_fails")
+#: implied-price axis position (~$700-750/tCO2e via
+#: `scenario_axis_positions`'s `fueleu_implied_price` call) — a grid that
+#: stopped at 600 could never place a switching point anywhere near that
+#: scenario's actual position, silently making every consistency check
+#: (`exposure.run_consistency_checks`) involving it unresolvable rather than
+#: genuinely inconsistent.
+DEFAULT_PRICE_GRID: tuple[float, ...] = tuple(range(0, 1001, 25))
 
 #: The six per-vessel-year decision fields switching points are extracted
 #: over (`VesselYearGene`'s decision fields, minus `vessel_id`/`year`, which
