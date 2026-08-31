@@ -4,16 +4,69 @@ classical validation method: "retraining per scenario and counting how often
 each decision flips").
 
 A decision is **exposed** if its optimal value differs across the K=5
-scenario-optimal fleet plans (`solve_scenario`, component 4). Each exposed
-decision is priced in capital-at-risk USD from the model's own numbers —
-never an invented lump sum — summed and converted to INR. Component 4's
-carbon-price sweep gives a free cross-check for free: since every scenario
-in scenarios.json differs from the others only in its NZF treatment, a
-decision that flips between two scenarios ought to have a matching switching
-point somewhere between those scenarios' axis positions in the sweep. Where
-it doesn't, that's a finding (a GA-convergence gap, or an axis position built
-from a mechanism the uniform-price sweep doesn't capture) reported rather
-than hidden.
+scenario-optimal fleet plans (`solve_scenario`, component 4). Two integrity
+requirements shape this module beyond the basic flip-count, both added after
+review of the first version's numbers:
+
+**Stability first (PLAN §8.3(c)'s principle, applied to GA seed variance).**
+Every scenario is independently re-solved under `DEFAULT_STABILITY_SEEDS`
+before anything is called "exposed" — at this component's original default
+budget (population 40, 30 generations), roughly half of all decisions
+disagreed between two runs of the *same* scenario differing only in random
+seed, which would have made most of the original "113 exposed decisions"
+uninterpretable GA noise rather than a real reading of the vote's economics.
+A decision is reported only when every seed agrees on its value within each
+scenario it's evaluated under; where seeds disagree, it's reported as
+*unstable* and excluded from the exposed count instead of silently kept in
+or silently dropped. Raising the GA's population/generation budget alone
+does not make this go away past a point — even at population 300 (vs. the
+default 200), the per-scenario two-seed disagreement rate on this fleet
+plateaus around 38% rather than reaching zero, because a real fraction of
+decisions sit in genuinely near-tied cost regions where multiple choices
+cost almost the same; the stability filter is reporting that honestly
+rather than an under-convergence artifact to be brute-forced away.
+
+Requiring *unanimous* agreement across all `len(DEFAULT_STABILITY_SEEDS)`
+seeds, independently in *every one* of the K=5 scenarios, compounds that
+per-scenario rate into a much stricter bar than it looks at first: a
+one-off production run at the full defaults (population 200, 200
+generations, 3 seeds) on this fleet found only **2 of ~200 candidate
+decisions stable enough to report as exposed** — the other 198 disagreed
+across seeds somewhere in at least one scenario. That is not a bug in the
+filter; it is the filter doing its job. It also means the "N stable exposed
+decisions" count should be read as a lower bound produced by a strict,
+honest criterion, not as "how many decisions the vote could plausibly
+move" — a softer criterion (e.g. majority-of-seeds agreement) would surface
+more decisions at the cost of weaker confidence in each one; this version
+takes the stricter reading deliberately.
+
+**Three outputs, not one summed total.** Per-decision capital-at-risk
+figures are independent marginal deltas — each computed against the same
+baseline plan with only *that one* decision swapped — and are not mutually
+exclusive costs, so summing them across decision types double-counts
+overlapping risk and mixes one-time capex with recurring opex-shaped deltas
+(this module's first version did exactly that, and the resulting total
+exceeded the entire fleet's five-year operating cost, which was the tell).
+This version instead reports:
+
+1. `plan_spread` — PLAN §3.1's actual headline "cost of regulatory
+   uncertainty" number: max minus min of the K=5 scenarios' own
+   *scenario-optimal total plan costs*. A single, non-overlapping figure.
+2. `capex_exposure` — PLAN §3.1/§9.3's "X crore of capex is contingent on
+   the vote" figure: capital-commitment decisions only. This prototype's
+   genome models exactly one such decision (shore-power election); there is
+   no `retrofit_year` variable yet (PLAN.md §5.4/Track F), so retrofit-type
+   capex isn't represented here and the note says so.
+3. `per_decision_deltas` — every stable exposed decision, all types, for
+   drill-down tables only, carrying an explicit "do not sum" note.
+
+Component 4's carbon-price sweep gives a free cross-check: since every
+scenario in scenarios.json differs from the others only in its NZF
+treatment, a decision that flips between two scenarios ought to have a
+matching switching point somewhere between those scenarios' axis positions
+in the sweep. Where it doesn't, that's a finding (a GA-convergence gap, or
+an axis position built from a mechanism the uniform-price sweep doesn't
+capture) reported rather than hidden.
 """
 
 from __future__ import annotations
@@ -41,6 +94,15 @@ from knotwise.regulatory.scenario_resolution import resolve_regulations_for_scen
 #: pricing one decision's flip — the currently-approved regulatory text, i.e.
 #: today's expected plan, not an arbitrary or averaged one.
 BASELINE_SCENARIO_ID = "approved_text"
+
+#: Stability-filter defaults (PLAN §8.3(c)'s principle): each scenario is
+#: solved under every one of these seeds independently before a decision's
+#: value is trusted. Expensive at these settings (see `solve_scenario_with_
+#: stability`'s docstring) — meant for an offline run, not routine test use;
+#: tests pass smaller values explicitly.
+DEFAULT_STABILITY_SEEDS: tuple[int, ...] = (0, 1, 2)
+DEFAULT_STABILITY_POPULATION_SIZE = 200
+DEFAULT_STABILITY_GENERATIONS = 200
 
 
 @dataclass(frozen=True)
@@ -77,11 +139,53 @@ class ConsistencyCheck:
 
 
 @dataclass(frozen=True)
+class UnstableDecision:
+    """A vessel-year decision where `DEFAULT_STABILITY_SEEDS` (or whatever
+    `seeds` was passed) disagreed on the optimal value *within* at least one
+    scenario -- not a finding about the vote, a finding about the search
+    not having converged to a single answer at this GA budget."""
+
+    vessel_id: str
+    year: int
+    decision: str
+
+
+@dataclass(frozen=True)
+class PlanSpread:
+    """PLAN §3.1's headline "cost of regulatory uncertainty" figure: the
+    spread between the most and least expensive of the K=5 scenario-optimal
+    total plan costs. A single, non-overlapping number -- not a sum of
+    per-decision deltas."""
+
+    scenario_totals_usd: dict[str, float]
+    max_scenario_id: str
+    min_scenario_id: str
+    spread_usd: float
+    spread_inr: float
+
+
+@dataclass(frozen=True)
+class CapexExposure:
+    """PLAN §3.1/§9.3's "X crore of capex is contingent on the vote" figure:
+    capital-commitment decisions only, summed (unlike `per_decision_deltas`,
+    these genuinely are mutually exclusive per-vessel-year elections, so
+    summing them is legitimate)."""
+
+    decisions: list[ExposedDecision]
+    total_usd: float
+    total_inr: float
+
+
+@dataclass(frozen=True)
 class ExposureResult:
     scenario_ids: list[str]
-    exposed_decisions: list[ExposedDecision]
-    total_capital_at_risk_usd: float
-    total_capital_at_risk_inr: float
+    stability_seeds: tuple[int, ...]
+    ga_population_size: int
+    ga_generations: int
+    plan_spread: PlanSpread
+    capex_exposure: CapexExposure
+    per_decision_deltas: list[ExposedDecision]
+    unstable_decisions: list[UnstableDecision]
     fx_rate_usd_to_inr: float
     fx_status: str
     fx_retrieval_date: str
@@ -89,23 +193,94 @@ class ExposureResult:
     consistency_checks: list[ConsistencyCheck]
 
 
-def solve_all_scenarios(
+@dataclass(frozen=True)
+class ScenarioStabilitySolve:
+    """One scenario's result across every stability seed: the best (lowest-
+    cost) seed's genome/cost stand in as "the" scenario-optimal plan (same
+    role `solve_scenario`'s single result played before), plus which
+    vessel-year decisions the seeds didn't all agree on."""
+
+    scenario_id: str
+    best_genome: Genome
+    best_total_usd: float
+    per_seed_total_usd: dict[int, float]
+    unstable_keys: frozenset[tuple[str, int, str]]
+
+
+def stability_from_per_seed_genomes(genomes_by_seed: dict[int, Genome]) -> frozenset[tuple[str, int, str]]:
+    """The pure part of the stability filter: given each seed's genome for
+    one scenario, which (vessel_id, year, decision) keys do the seeds
+    disagree on. Factored out from `solve_scenario_with_stability` so it's
+    directly unit-testable against hand-built genomes, without paying for a
+    real GA solve just to exercise the disagreement logic."""
+    seeds = list(genomes_by_seed)
+    genes_by_seed_by_key = {
+        seed: {(gene.vessel_id, gene.year): gene for gene in genome} for seed, genome in genomes_by_seed.items()
+    }
+    keys = list(genes_by_seed_by_key[seeds[0]])
+
+    unstable_keys: set[tuple[str, int, str]] = set()
+    for vessel_id, year in keys:
+        for field_name in DECISION_FIELDS:
+            values = {getattr(genes_by_seed_by_key[seed][(vessel_id, year)], field_name) for seed in seeds}
+            if len(values) > 1:
+                unstable_keys.add((vessel_id, year, field_name))
+    return frozenset(unstable_keys)
+
+
+def solve_scenario_with_stability(
+    fleet: dict[str, Any],
+    prices: dict[str, Any],
+    scenario_id: str,
+    *,
+    seeds: tuple[int, ...] = DEFAULT_STABILITY_SEEDS,
+    population_size: int = DEFAULT_STABILITY_POPULATION_SIZE,
+    n_generations: int = DEFAULT_STABILITY_GENERATIONS,
+) -> ScenarioStabilitySolve:
+    """Re-solve `scenario_id` under every seed in `seeds` independently and
+    report which vessel-year decisions they don't agree on (PLAN §8.3(c)'s
+    stability-flag principle, applied to this classical GA's own
+    seed-to-seed variance -- the analog available before the tensor/SMC
+    optimizer's own bond-dimension sweep exists).
+
+    Expensive at the defaults (`len(seeds)` full solves at population 200 /
+    200 generations each -- multiple minutes on this fleet): intended for an
+    offline run producing `exposure.json`, not for interactive or routine
+    test use. Pass smaller `seeds`/`population_size`/`n_generations` for
+    fast structural tests; see `solve_scenario` for the cheap single-seed
+    primitive this wraps.
+    """
+    results_by_seed = {
+        seed: solve_scenario(
+            fleet, prices, scenario_id, seed=seed, population_size=population_size, n_generations=n_generations
+        )
+        for seed in seeds
+    }
+    best_seed = min(results_by_seed, key=lambda s: results_by_seed[s].best_total_usd)
+    best_result = results_by_seed[best_seed]
+    unstable_keys = stability_from_per_seed_genomes({seed: r.best_genome for seed, r in results_by_seed.items()})
+
+    return ScenarioStabilitySolve(
+        scenario_id=scenario_id,
+        best_genome=best_result.best_genome,
+        best_total_usd=best_result.best_total_usd,
+        per_seed_total_usd={seed: r.best_total_usd for seed, r in results_by_seed.items()},
+        unstable_keys=unstable_keys,
+    )
+
+
+def solve_all_scenarios_with_stability(
     fleet: dict[str, Any],
     prices: dict[str, Any],
     *,
-    seed: int,
-    population_size: int,
-    n_generations: int,
-) -> dict[str, Genome]:
+    seeds: tuple[int, ...] = DEFAULT_STABILITY_SEEDS,
+    population_size: int = DEFAULT_STABILITY_POPULATION_SIZE,
+    n_generations: int = DEFAULT_STABILITY_GENERATIONS,
+) -> dict[str, ScenarioStabilitySolve]:
     return {
-        scenario["id"]: solve_scenario(
-            fleet,
-            prices,
-            scenario["id"],
-            seed=seed,
-            population_size=population_size,
-            n_generations=n_generations,
-        ).best_genome
+        scenario["id"]: solve_scenario_with_stability(
+            fleet, prices, scenario["id"], seeds=seeds, population_size=population_size, n_generations=n_generations
+        )
         for scenario in load_scenarios()["scenarios"]
     }
 
@@ -413,36 +588,70 @@ def run_consistency_checks(
     return checks
 
 
+#: The one decision type that's a genuine capital commitment in this
+#: prototype's genome. No `retrofit_year` variable exists yet (PLAN.md
+#: §5.4/Track F), so this is the whole capex-shaped decision set for now.
+CAPEX_DECISION_TYPES = frozenset({"shore_power"})
+
+
 def compute_exposure(
     fleet: dict[str, Any],
     prices: dict[str, Any],
     sweep_result: SweepResult,
     *,
-    seed: int = 0,
-    population_size: int = 40,
-    n_generations: int = 30,
+    seeds: tuple[int, ...] = DEFAULT_STABILITY_SEEDS,
+    population_size: int = DEFAULT_STABILITY_POPULATION_SIZE,
+    n_generations: int = DEFAULT_STABILITY_GENERATIONS,
     fuel_model: FuelModel | None = None,
 ) -> ExposureResult:
     """The Exposure Map by flip-counting (Task 2R component 5): solve every
-    K=5 scenario, diff the results, price each exposed decision from the
-    model's own numbers, and cross-check the flips against `sweep_result`
+    K=5 scenario under every stability seed, keep only the decisions every
+    seed agreed on within its scenario, price each one that still differs
+    across scenarios, and cross-check the flips against `sweep_result`
     (component 4's carbon-price sweep -- pass one from `sweep.run_sweep`;
     not run here automatically, since it's the more expensive of the two
     computations and the caller may already have one).
+
+    Returns three non-overlapping figures rather than one summed total --
+    see the module docstring for why summing `per_decision_deltas` would be
+    wrong. `seeds`/`population_size`/`n_generations` default to the
+    (expensive) stability-filter settings; pass smaller values for fast
+    structural tests.
     """
     fuel_model = fuel_model or PhysicsFuelModel()
     vessels_by_id = {v["vessel_id"]: v for v in fleet["vessels"]}
+    band_by_vessel_id = {v["vessel_id"]: v["band"] for v in fleet["vessels"]}
     scenario_ids = [s["id"] for s in load_scenarios()["scenarios"]]
+    fx = prices["fx_rates"]["usd_to_inr"]
 
-    genomes_by_scenario = solve_all_scenarios(
-        fleet, prices, seed=seed, population_size=population_size, n_generations=n_generations
+    solves_by_scenario = solve_all_scenarios_with_stability(
+        fleet, prices, seeds=seeds, population_size=population_size, n_generations=n_generations
     )
-    baseline_genome = genomes_by_scenario[BASELINE_SCENARIO_ID]
+    genomes_by_scenario = {sid: solve.best_genome for sid, solve in solves_by_scenario.items()}
+    global_unstable_keys: set[tuple[str, int, str]] = set()
+    for solve in solves_by_scenario.values():
+        global_unstable_keys |= solve.unstable_keys
+
+    baseline_solve = solves_by_scenario[BASELINE_SCENARIO_ID]
+    baseline_genome = baseline_solve.best_genome
     baseline_by_key = {(gene.vessel_id, gene.year): gene for gene in baseline_genome}
     base_regulations = resolve_regulations_for_scenario(BASELINE_SCENARIO_ID)
     dwt_by_route_year = compute_dwt_by_route_year(baseline_genome, fleet)
 
-    exposed = detect_exposed_decisions(genomes_by_scenario, fleet)
+    # `detect_exposed_decisions` already excludes Band C; for any key not in
+    # global_unstable_keys, every scenario's own 3-seed solve agreed, so its
+    # best-seed genome value *is* that scenario's stable value -- no need to
+    # re-derive it from a separate "stable-values" structure.
+    candidate_exposed = detect_exposed_decisions(genomes_by_scenario, fleet)
+    stable_exposed = [
+        d for d in candidate_exposed if (d["vessel_id"], d["year"], d["decision"]) not in global_unstable_keys
+    ]
+    unstable_decisions = [
+        UnstableDecision(vessel_id=vessel_id, year=year, decision=decision)
+        for vessel_id, year, decision in sorted(global_unstable_keys)
+        if band_by_vessel_id.get(vessel_id) != "C"
+    ]
+
     priced_decisions = [
         price_exposed_decision(
             decision,
@@ -455,13 +664,30 @@ def compute_exposure(
             fuel_model,
             dwt_by_route_year,
         )
-        for decision in exposed
+        for decision in stable_exposed
     ]
 
-    total_usd = sum(d.capital_at_risk_usd for d in priced_decisions)
-    fx = prices["fx_rates"]["usd_to_inr"]
-    total_inr = total_usd * fx["rate"]
+    # --- (1) Plan spread: PLAN §3.1's actual headline number. ---
+    scenario_totals_usd = {sid: solve.best_total_usd for sid, solve in solves_by_scenario.items()}
+    max_scenario_id = max(scenario_totals_usd, key=scenario_totals_usd.get)
+    min_scenario_id = min(scenario_totals_usd, key=scenario_totals_usd.get)
+    spread_usd = scenario_totals_usd[max_scenario_id] - scenario_totals_usd[min_scenario_id]
+    plan_spread = PlanSpread(
+        scenario_totals_usd=scenario_totals_usd,
+        max_scenario_id=max_scenario_id,
+        min_scenario_id=min_scenario_id,
+        spread_usd=spread_usd,
+        spread_inr=spread_usd * fx["rate"],
+    )
 
+    # --- (2) Capex exposure: the PLAN §9.3 CFO-sentence figure. ---
+    capex_decisions = [d for d in priced_decisions if d.decision in CAPEX_DECISION_TYPES]
+    capex_total_usd = sum(d.capital_at_risk_usd for d in capex_decisions)
+    capex_exposure = CapexExposure(
+        decisions=capex_decisions, total_usd=capex_total_usd, total_inr=capex_total_usd * fx["rate"]
+    )
+
+    # --- (3) Consistency checks, on the stable (seed-converged) decisions. ---
     ticks_by_scenario = {tick.scenario_id: tick for tick in sweep_result.scenario_ticks}
     switching_points_by_key: dict[tuple[str, int, str], list] = defaultdict(list)
     for switching_point in sweep_result.switching_points:
@@ -472,9 +698,13 @@ def compute_exposure(
 
     return ExposureResult(
         scenario_ids=scenario_ids,
-        exposed_decisions=priced_decisions,
-        total_capital_at_risk_usd=total_usd,
-        total_capital_at_risk_inr=total_inr,
+        stability_seeds=tuple(seeds),
+        ga_population_size=population_size,
+        ga_generations=n_generations,
+        plan_spread=plan_spread,
+        capex_exposure=capex_exposure,
+        per_decision_deltas=priced_decisions,
+        unstable_decisions=unstable_decisions,
         fx_rate_usd_to_inr=fx["rate"],
         fx_status=fx["status"],
         fx_retrieval_date=fx["retrieval_date"],
@@ -483,28 +713,99 @@ def compute_exposure(
     )
 
 
+def _exposed_decision_to_dict(d: ExposedDecision) -> dict[str, Any]:
+    return {
+        "vessel_id": d.vessel_id,
+        "year": d.year,
+        "decision": d.decision,
+        "flips_between_which_scenarios": d.values_by_scenario,
+        "capital_at_risk": {
+            "amount_usd": d.capital_at_risk_usd,
+            "status": d.capital_at_risk_status,
+            "notes": d.capital_at_risk_notes,
+        },
+    }
+
+
 def exposure_result_to_dict(result: ExposureResult) -> dict[str, Any]:
     """A fully JSON-serializable view of `result` for `exposure.json` —
-    exposed_decisions -> capital_at_risk/flips_between_which_scenarios ->
-    totals -> consistency checks, every figure carrying the status/notes
-    discipline established by components 3 and 4."""
+    plan_spread / capex_exposure / per_decision_deltas kept as three
+    separate, clearly-labeled figures (never re-merged into one summed
+    total), plus unstable_decisions and the sweep cross-check, every figure
+    carrying the status/notes discipline established by components 3 and 4.
+    """
     return {
-        "document_version": "task2r-component5-v1",
+        "document_version": "task2r-component5-v2",
         "provenance_note": (
             "Exposure Map by flip-counting (Task 2R component 5, prototype version, PLAN.md §3.1 via "
-            "§8.3b's classical method). A decision is exposed if its GA-optimal value differs across the "
-            "K=5 scenario-optimal solves. Band C vessel-years are excluded (provably invariant -- see "
-            "sweep.py's own note). capital_at_risk figures are computed from this model's fuel/compliance/"
-            "demand-penalty numbers, never invented lump sums; each carries its own confidence status. "
-            "consistency_checks cross-validate every flip against component 4's carbon-price sweep -- "
-            "'consistent: null' means not checkable (no computed axis position for one of the two "
-            "scenarios), not a pass or a fail."
+            "§8.3b's classical method). A decision is exposed if its stable (seed-converged) value "
+            "differs across the K=5 scenario-optimal solves; Band C vessel-years are excluded (provably "
+            "invariant -- see sweep.py's own note). plan_spread, capex_exposure, and per_decision_deltas "
+            "are three DISTINCT figures, not one broken into parts -- see the 'methodology' and each "
+            "section's own 'description' for why they must not be summed together or with each other."
         ),
         "scenario_ids": result.scenario_ids,
+        "methodology": {
+            "stability_seeds": list(result.stability_seeds),
+            "ga_population_size": result.ga_population_size,
+            "ga_generations": result.ga_generations,
+            "note": (
+                "PLAN §8.3(c)'s stability-flag principle, applied to this classical GA's own seed-to-seed "
+                "variance (the analog available before the tensor/SMC optimizer's bond-dimension sweep "
+                "exists): each scenario is solved under every seed in stability_seeds independently; a "
+                "decision is reported (as exposed or not) only when every seed agrees on its value within "
+                "that scenario. See unstable_decisions for what didn't converge."
+            ),
+        },
         "summary": {
-            "exposed_decision_count": len(result.exposed_decisions),
-            "total_capital_at_risk_usd": result.total_capital_at_risk_usd,
-            "total_capital_at_risk_inr": result.total_capital_at_risk_inr,
+            "stable_exposed_decision_count": len(result.per_decision_deltas),
+            "unstable_decision_count": len(result.unstable_decisions),
+            "plan_spread_usd": result.plan_spread.spread_usd,
+            "plan_spread_inr": result.plan_spread.spread_inr,
+            "capex_exposure_usd": result.capex_exposure.total_usd,
+            "capex_exposure_inr": result.capex_exposure.total_inr,
+        },
+        "plan_spread": {
+            "description": (
+                "PLAN §3.1's headline 'cost of regulatory uncertainty' figure: max minus min of the five "
+                "scenario-optimal total plan costs. A single, non-overlapping number, not a sum."
+            ),
+            "scenario_totals_usd": result.plan_spread.scenario_totals_usd,
+            "max_scenario_id": result.plan_spread.max_scenario_id,
+            "min_scenario_id": result.plan_spread.min_scenario_id,
+            "spread_usd": result.plan_spread.spread_usd,
+            "spread_inr": result.plan_spread.spread_inr,
+        },
+        "capex_exposure": {
+            "description": (
+                "PLAN §3.1/§9.3's 'X crore of capex is contingent on the vote' figure: capital-commitment "
+                "decisions only. This prototype's genome models exactly one such decision (shore-power "
+                "election) -- there is no retrofit_year variable yet (PLAN.md §5.4/Track F), so "
+                "retrofit-type capex is not represented here."
+            ),
+            "total_usd": result.capex_exposure.total_usd,
+            "total_inr": result.capex_exposure.total_inr,
+            "decisions": [_exposed_decision_to_dict(d) for d in result.capex_exposure.decisions],
+        },
+        "per_decision_deltas": {
+            "description": (
+                "Every stable exposed decision (all types), for drill-down only. These are independent "
+                "marginal deltas, each computed against the same baseline plan with only that one "
+                "decision swapped -- they are NOT mutually exclusive costs and MUST NOT be summed into a "
+                "single 'total exposure' figure: doing so double-counts overlapping risk and mixes "
+                "one-time capex with recurring opex-shaped deltas. Use plan_spread for the headline number "
+                "and capex_exposure for the capex-specific figure."
+            ),
+            "decisions": [_exposed_decision_to_dict(d) for d in result.per_decision_deltas],
+        },
+        "unstable_decisions": {
+            "count": len(result.unstable_decisions),
+            "description": (
+                "Decisions where the stability_seeds disagreed on the optimal value within at least one "
+                "scenario -- excluded from every count above (PLAN §8.3(c)): a decision the search itself "
+                "can't reproduce isn't a finding about the vote, it's GA noise."
+            ),
+            "decisions": [asdict(d) for d in result.unstable_decisions],
         },
         "fx": {
             "usd_to_inr_rate": result.fx_rate_usd_to_inr,
@@ -512,20 +813,6 @@ def exposure_result_to_dict(result: ExposureResult) -> dict[str, Any]:
             "retrieval_date": result.fx_retrieval_date,
             "notes": result.fx_notes,
         },
-        "exposed_decisions": [
-            {
-                "vessel_id": d.vessel_id,
-                "year": d.year,
-                "decision": d.decision,
-                "flips_between_which_scenarios": d.values_by_scenario,
-                "capital_at_risk": {
-                    "amount_usd": d.capital_at_risk_usd,
-                    "status": d.capital_at_risk_status,
-                    "notes": d.capital_at_risk_notes,
-                },
-            }
-            for d in result.exposed_decisions
-        ],
         "consistency_checks": [asdict(c) for c in result.consistency_checks],
     }
 
@@ -548,6 +835,7 @@ if __name__ == "__main__":
     _result = compute_exposure(_fleet, _prices, _sweep)
     write_exposure_results("exposure.json", _result)
     print(
-        f"wrote exposure.json: {len(_result.exposed_decisions)} exposed decisions, "
-        f"₹{_result.total_capital_at_risk_inr:,.0f} total capital at risk"
+        f"wrote exposure.json: {len(_result.per_decision_deltas)} stable exposed decisions "
+        f"({len(_result.unstable_decisions)} unstable), plan_spread=₹{_result.plan_spread.spread_inr:,.0f}, "
+        f"capex_exposure=₹{_result.capex_exposure.total_inr:,.0f}"
     )
