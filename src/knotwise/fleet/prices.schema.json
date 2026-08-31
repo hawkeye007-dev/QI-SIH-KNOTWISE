@@ -35,6 +35,20 @@
           "notes": {"type": "string"}
         }
       }
+    },
+    "fx_rates": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["rate", "retrieval_date", "status", "source"],
+        "properties": {
+          "rate": {"type": "number", "exclusiveMinimum": 0},
+          "retrieval_date": {"type": "string", "format": "date"},
+          "status": {"enum": ["MARKET_QUOTE", "PROXY", "ESTIMATE"]},
+          "source": {"type": "string", "minLength": 1},
+          "notes": {"type": "string"}
+        }
+      }
     }
   }
 }
