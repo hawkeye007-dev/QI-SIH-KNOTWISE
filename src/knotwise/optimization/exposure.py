@@ -77,6 +77,7 @@ from itertools import combinations
 from typing import Any
 
 from knotwise.fleet.model import option_menu_for
+from knotwise.optimization import mps_exposure
 from knotwise.optimization.constraints import demand_shortfall_penalty
 from knotwise.optimization.fuel_model import FuelModel, PhysicsFuelModel, sea_days
 from knotwise.optimization.genome import Genome
@@ -188,12 +189,27 @@ class ExposureResult:
     unstable_decisions: list[UnstableDecision]
     majority_band_decisions: list[ExposedDecision]
     majority_unstable_decisions: list[UnstableDecision]
+    #: The same CAPEX_DECISION_TYPES filter/sum as `capex_exposure`, applied
+    #: to `majority_band_decisions` instead of `per_decision_deltas` (review
+    #: follow-up: the unanimous tier's capex figure is frequently $0 on this
+    #: fleet -- only 2 decisions clear that bar at all -- so it structurally
+    #: can't carry the PLAN §9.3 CFO-sentence claim by itself; this is the
+    #: same claim read at the majority-agreement confidence tier instead,
+    #: which has far more candidate decisions. Report with the tier's own
+    #: weaker confidence, never merged into `capex_exposure`.)
+    majority_capex_exposure: CapexExposure
     fx_rate_usd_to_inr: float
     fx_status: str
     fx_retrieval_date: str
     fx_notes: str
     consistency_checks: list[ConsistencyCheck]
     majority_band_consistency_checks: list[ConsistencyCheck]
+    #: The `BASELINE_SCENARIO_ID`-solved plan every per-decision delta above
+    #: was priced against ("everything else held fixed" -- see
+    #: `price_exposed_decision`). Exposed so a caller can run
+    #: `compute_mps_crosscheck` against the *same* baseline this run
+    #: already solved, without a second expensive stability solve.
+    baseline_genome: Genome
 
 
 @dataclass(frozen=True)
@@ -275,6 +291,7 @@ def solve_scenario_with_stability(
     seeds: tuple[int, ...] = DEFAULT_STABILITY_SEEDS,
     population_size: int = DEFAULT_STABILITY_POPULATION_SIZE,
     n_generations: int = DEFAULT_STABILITY_GENERATIONS,
+    optimizer: str = "ga",
 ) -> ScenarioStabilitySolve:
     """Re-solve `scenario_id` under every seed in `seeds` independently and
     report which vessel-year decisions they don't agree on (PLAN §8.3(c)'s
@@ -288,13 +305,36 @@ def solve_scenario_with_stability(
     test use. Pass smaller `seeds`/`population_size`/`n_generations` for
     fast structural tests; see `solve_scenario` for the cheap single-seed
     primitive this wraps.
+
+    `optimizer` selects `"ga"` (default, unchanged behaviour) or `"qiea"`
+    (`sweep._run_solver`, via `solve_scenario`) for every seed's solve.
     """
-    results_by_seed = {
-        seed: solve_scenario(
-            fleet, prices, scenario_id, seed=seed, population_size=population_size, n_generations=n_generations
+    # Solved in order, each seed after the first canonicalizing its
+    # cost-tied decisions against the first seed's plan (`reference_genome`,
+    # *not* `seed_genome` -- no warm start, so every seed remains a fully
+    # independent search). Without this, the ~89 exactly-cost-neutral
+    # `pool_opt_in`/`borrow_election` bits on this fleet are re-rolled by
+    # every seed, and `stability_from_per_seed_genomes` reports each
+    # disagreement as an unstable decision -- which is precisely backwards:
+    # a decision this model prices identically either way is not unstable,
+    # it is undetermined, and flagging it drowns the genuinely
+    # seed-sensitive decisions this function exists to surface.
+    results_by_seed: dict[int, Any] = {}
+    reference_genome: Genome | None = None
+    for seed in seeds:
+        result = solve_scenario(
+            fleet,
+            prices,
+            scenario_id,
+            seed=seed,
+            population_size=population_size,
+            n_generations=n_generations,
+            optimizer=optimizer,
+            reference_genome=reference_genome,
         )
-        for seed in seeds
-    }
+        results_by_seed[seed] = result
+        if reference_genome is None:
+            reference_genome = result.best_genome
     best_seed = min(results_by_seed, key=lambda s: results_by_seed[s].best_total_usd)
     best_result = results_by_seed[best_seed]
     genomes_by_seed = {seed: r.best_genome for seed, r in results_by_seed.items()}
@@ -318,10 +358,17 @@ def solve_all_scenarios_with_stability(
     seeds: tuple[int, ...] = DEFAULT_STABILITY_SEEDS,
     population_size: int = DEFAULT_STABILITY_POPULATION_SIZE,
     n_generations: int = DEFAULT_STABILITY_GENERATIONS,
+    optimizer: str = "ga",
 ) -> dict[str, ScenarioStabilitySolve]:
     return {
         scenario["id"]: solve_scenario_with_stability(
-            fleet, prices, scenario["id"], seeds=seeds, population_size=population_size, n_generations=n_generations
+            fleet,
+            prices,
+            scenario["id"],
+            seeds=seeds,
+            population_size=population_size,
+            n_generations=n_generations,
+            optimizer=optimizer,
         )
         for scenario in load_scenarios()["scenarios"]
     }
@@ -677,6 +724,7 @@ def compute_exposure(
     population_size: int = DEFAULT_STABILITY_POPULATION_SIZE,
     n_generations: int = DEFAULT_STABILITY_GENERATIONS,
     fuel_model: FuelModel | None = None,
+    optimizer: str = "ga",
 ) -> ExposureResult:
     """The Exposure Map by flip-counting (Task 2R component 5): solve every
     K=5 scenario under every stability seed, keep only the decisions every
@@ -691,6 +739,12 @@ def compute_exposure(
     wrong. `seeds`/`population_size`/`n_generations` default to the
     (expensive) stability-filter settings; pass smaller values for fast
     structural tests.
+
+    `optimizer` selects `"ga"` (default, unchanged behaviour) or `"qiea"`
+    for every one of this run's scenario x seed solves (`sweep._run_solver`,
+    via `solve_all_scenarios_with_stability`). Independent of `sweep_result`'s
+    own optimizer -- pass one built under the same `optimizer` for a
+    consistent cross-check, or mix deliberately to compare.
     """
     fuel_model = fuel_model or PhysicsFuelModel()
     vessels_by_id = {v["vessel_id"]: v for v in fleet["vessels"]}
@@ -699,7 +753,7 @@ def compute_exposure(
     fx = prices["fx_rates"]["usd_to_inr"]
 
     solves_by_scenario = solve_all_scenarios_with_stability(
-        fleet, prices, seeds=seeds, population_size=population_size, n_generations=n_generations
+        fleet, prices, seeds=seeds, population_size=population_size, n_generations=n_generations, optimizer=optimizer
     )
     genomes_by_scenario = {sid: solve.best_genome for sid, solve in solves_by_scenario.items()}
     global_unstable_keys: set[tuple[str, int, str]] = set()
@@ -799,6 +853,15 @@ def compute_exposure(
         decisions=capex_decisions, total_usd=capex_total_usd, total_inr=capex_total_usd * fx["rate"]
     )
 
+    # --- (2b) Majority-band capex exposure: same figure, looser tier. ---
+    majority_capex_decisions = [d for d in priced_majority_band if d.decision in CAPEX_DECISION_TYPES]
+    majority_capex_total_usd = sum(d.capital_at_risk_usd for d in majority_capex_decisions)
+    majority_capex_exposure = CapexExposure(
+        decisions=majority_capex_decisions,
+        total_usd=majority_capex_total_usd,
+        total_inr=majority_capex_total_usd * fx["rate"],
+    )
+
     # --- (3) Consistency checks, on the stable (seed-converged) decisions. ---
     ticks_by_scenario = {tick.scenario_id: tick for tick in sweep_result.scenario_ticks}
     switching_points_by_key: dict[tuple[str, int, str], list] = defaultdict(list)
@@ -822,12 +885,14 @@ def compute_exposure(
         unstable_decisions=unstable_decisions,
         majority_band_decisions=priced_majority_band,
         majority_unstable_decisions=majority_unstable_decisions,
+        majority_capex_exposure=majority_capex_exposure,
         fx_rate_usd_to_inr=fx["rate"],
         fx_status=fx["status"],
         fx_retrieval_date=fx["retrieval_date"],
         fx_notes=fx.get("notes", ""),
         consistency_checks=consistency_checks,
         majority_band_consistency_checks=majority_band_consistency_checks,
+        baseline_genome=baseline_genome,
     )
 
 
@@ -884,6 +949,8 @@ def exposure_result_to_dict(result: ExposureResult) -> dict[str, Any]:
             "plan_spread_inr": result.plan_spread.spread_inr,
             "capex_exposure_usd": result.capex_exposure.total_usd,
             "capex_exposure_inr": result.capex_exposure.total_inr,
+            "majority_capex_exposure_usd": result.majority_capex_exposure.total_usd,
+            "majority_capex_exposure_inr": result.majority_capex_exposure.total_inr,
         },
         "plan_spread": {
             "description": (
@@ -906,6 +973,23 @@ def exposure_result_to_dict(result: ExposureResult) -> dict[str, Any]:
             "total_usd": result.capex_exposure.total_usd,
             "total_inr": result.capex_exposure.total_inr,
             "decisions": [_exposed_decision_to_dict(d) for d in result.capex_exposure.decisions],
+        },
+        "majority_capex_exposure": {
+            "description": (
+                "The same 'X crore of capex is contingent on the vote' figure as capex_exposure, "
+                "computed at the majority-band confidence tier (review item 1a) instead of the strict "
+                "unanimous tier -- capex_exposure is frequently $0 on a small fleet because only a "
+                "handful of decisions ever clear the unanimous bar at all; this reads the same claim "
+                "off the much larger majority-band candidate set. Carry the majority tier's own weaker "
+                "confidence -- do not present this as equivalent to capex_exposure's unanimous bar. "
+                "majority_band_decisions is already deduplicated against the unanimous tier's "
+                "stable_exposed set (see compute_exposure), so no decision is ever priced in both "
+                "this and capex_exposure -- the two totals are safe to display side by side, but are "
+                "still two different confidence tiers of the same claim, not one number split in two."
+            ),
+            "total_usd": result.majority_capex_exposure.total_usd,
+            "total_inr": result.majority_capex_exposure.total_inr,
+            "decisions": [_exposed_decision_to_dict(d) for d in result.majority_capex_exposure.decisions],
         },
         "per_decision_deltas": {
             "description": (
@@ -962,6 +1046,36 @@ def write_exposure_results(path: str, result: ExposureResult) -> None:
         json.dump(exposure_result_to_dict(result), f, indent=2)
 
 
+def compute_mps_crosscheck(
+    fleet: dict[str, Any], prices: dict[str, Any], result: ExposureResult
+) -> list[mps_exposure.ExposureComparisonRow]:
+    """PLAN §8.3(b)'s validation, now runnable in both directions: for every
+    (vessel_id, year) slot this module's flip-counting flagged as exposed or
+    unstable **at the unanimous tier** (`per_decision_deltas` /
+    `unstable_decisions` — the two labels `mps_exposure.compare_with_classical`
+    actually understands; the majority band is a separate, looser tier and
+    isn't mixed into this three-way comparison), compute the real
+    tensor-native mutual information (`mps_exposure.py`) against the exact
+    same `result.baseline_genome` this run already solved, and report them
+    side by side.
+
+    Bounded to just those candidate slots, not the whole fleet: the point is
+    cross-checking what flip-counting already surfaced against a real
+    tensor-native number, not recomputing the entire map by tensor (that's
+    `mps_exposure.compute_mps_exposure_map` directly, with no `vessel_years`
+    filter). Cheap relative to `compute_exposure` itself — each candidate
+    slot is a self-contained enumeration (`objective.evaluate` calls only,
+    no GA/QIEA search), and the unanimous tier is typically small by
+    construction (see this module's own docstring on how strict that bar
+    is).
+    """
+    candidate_slots = sorted({(d.vessel_id, d.year) for d in result.per_decision_deltas + result.unstable_decisions})
+    mps_result = mps_exposure.compute_mps_exposure_map(
+        fleet, prices, result.baseline_genome, vessel_years=candidate_slots
+    )
+    return mps_exposure.compare_with_classical(mps_result, result)
+
+
 if __name__ == "__main__":
     from knotwise.fleet.loader import load_fleet, load_prices
     from knotwise.optimization.sweep import run_sweep
@@ -977,5 +1091,14 @@ if __name__ == "__main__":
         f"{len(_result.majority_band_decisions)} majority-band decisions "
         f"({len(_result.majority_unstable_decisions)} majority-unstable), "
         f"plan_spread=₹{_result.plan_spread.spread_inr:,.0f}, "
-        f"capex_exposure=₹{_result.capex_exposure.total_inr:,.0f}"
+        f"capex_exposure=₹{_result.capex_exposure.total_inr:,.0f}, "
+        f"majority_capex_exposure=₹{_result.majority_capex_exposure.total_inr:,.0f}"
     )
+
+    _crosscheck = compute_mps_crosscheck(_fleet, _prices, _result)
+    print(f"MPS crosscheck: {len(_crosscheck)} (vessel-year, decision) rows, ranked by real tensor-native MI:")
+    for _row in _crosscheck[:10]:
+        print(
+            f"  {_row.vessel_id}/{_row.year} {_row.decision:16s} "
+            f"I(r;field)={_row.mutual_information_bits:.4f} bits  classical={_row.classical_status}"
+        )

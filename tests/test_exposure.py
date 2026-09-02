@@ -1,7 +1,9 @@
 """Tests for the Exposure Map by flip-counting (Task 2R component 5)."""
 
 import json
+import random
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +13,7 @@ from knotwise.optimization.exposure import (
     ExposedDecision,
     compute_dwt_by_route_year,
     compute_exposure,
+    compute_mps_crosscheck,
     detect_exposed_decisions,
     detect_exposed_from_value_maps,
     exposure_result_to_dict,
@@ -21,7 +24,8 @@ from knotwise.optimization.exposure import (
     run_consistency_checks,
     stability_from_per_seed_genomes,
 )
-from knotwise.optimization.genome import VesselYearGene
+from knotwise.optimization.genome import DECISION_FIELDS, VesselYearGene, random_genome
+from knotwise.optimization.mps_exposure import ExposureComparisonRow
 from knotwise.optimization.sweep import ScenarioAxisPosition, SwitchingPoint, run_sweep
 
 
@@ -482,6 +486,33 @@ class TestComputeExposureEndToEnd:
         for decision in result.capex_exposure.decisions:
             assert (decision.vessel_id, decision.year, decision.decision) in per_decision_keys
 
+    def test_majority_capex_exposure_only_contains_capex_decision_types(self, full_exposure):
+        result, _ = full_exposure
+        for decision in result.majority_capex_exposure.decisions:
+            assert decision.decision in CAPEX_DECISION_TYPES
+        assert result.majority_capex_exposure.total_usd == pytest.approx(
+            sum(d.capital_at_risk_usd for d in result.majority_capex_exposure.decisions)
+        )
+        assert result.majority_capex_exposure.total_inr == pytest.approx(
+            result.majority_capex_exposure.total_usd * result.fx_rate_usd_to_inr
+        )
+
+    def test_majority_capex_exposure_is_a_subset_of_majority_band_decisions(self, full_exposure):
+        result, _ = full_exposure
+        majority_keys = {(d.vessel_id, d.year, d.decision) for d in result.majority_band_decisions}
+        for decision in result.majority_capex_exposure.decisions:
+            assert (decision.vessel_id, decision.year, decision.decision) in majority_keys
+
+    def test_majority_capex_exposure_never_overlaps_the_headline_capex_exposure(self, full_exposure):
+        # Both tiers filter to CAPEX_DECISION_TYPES, but majority_band_decisions
+        # is already deduplicated against the unanimous headline set (review
+        # item 1a), so the two capex totals must never share a decision --
+        # safe to show side by side without double-counting.
+        result, _ = full_exposure
+        headline_keys = {(d.vessel_id, d.year, d.decision) for d in result.capex_exposure.decisions}
+        majority_capex_keys = {(d.vessel_id, d.year, d.decision) for d in result.majority_capex_exposure.decisions}
+        assert headline_keys.isdisjoint(majority_capex_keys)
+
     def test_fx_conversion_carries_provenance(self, full_exposure, prices):
         result, _ = full_exposure
         fx_entry = prices["fx_rates"]["usd_to_inr"]
@@ -542,12 +573,58 @@ class TestComputeExposureEndToEnd:
         )
         assert result_a.plan_spread.spread_usd == pytest.approx(result_b.plan_spread.spread_usd)
         assert result_a.capex_exposure.total_usd == pytest.approx(result_b.capex_exposure.total_usd)
+        assert result_a.majority_capex_exposure.total_usd == pytest.approx(result_b.majority_capex_exposure.total_usd)
         assert {(d.vessel_id, d.year, d.decision) for d in result_a.unstable_decisions} == {
             (d.vessel_id, d.year, d.decision) for d in result_b.unstable_decisions
         }
         assert {(d.vessel_id, d.year, d.decision) for d in result_a.majority_band_decisions} == {
             (d.vessel_id, d.year, d.decision) for d in result_b.majority_band_decisions
         }
+
+
+class TestMPSCrosscheck:
+    """PLAN §8.3(b)'s validation, now runnable in both directions
+    (`exposure.compute_mps_crosscheck`, wiring `mps_exposure.py`'s real
+    tensor-native mutual information against this module's classical
+    flip-counting on the same run's solved baseline)."""
+
+    def test_baseline_genome_is_a_full_fleet_plan(self, full_exposure, fleet):
+        result, _ = full_exposure
+        assert len(result.baseline_genome) == len(fleet["vessels"]) * len(fleet["horizon_years"])
+
+    def test_covers_exactly_the_unanimous_tier_candidate_slots(self, full_exposure, fleet, prices):
+        result, _ = full_exposure
+        rows = compute_mps_crosscheck(fleet, prices, result)
+
+        candidate_slots = {(d.vessel_id, d.year) for d in result.per_decision_deltas + result.unstable_decisions}
+        assert len(rows) == len(candidate_slots) * len(DECISION_FIELDS)
+        assert all(isinstance(row, ExposureComparisonRow) for row in rows)
+
+    def test_every_row_label_matches_the_classical_result_it_was_built_from(self, full_exposure, fleet, prices):
+        result, _ = full_exposure
+        rows = compute_mps_crosscheck(fleet, prices, result)
+
+        exposed_keys = {(d.vessel_id, d.year, d.decision) for d in result.per_decision_deltas}
+        unstable_keys = {(d.vessel_id, d.year, d.decision) for d in result.unstable_decisions}
+        for row in rows:
+            key = (row.vessel_id, row.year, row.decision)
+            if key in exposed_keys:
+                assert row.classical_status == "exposed"
+            elif key in unstable_keys:
+                assert row.classical_status == "unstable"
+            else:
+                assert row.classical_status == "not_exposed"
+            assert row.mutual_information_bits >= -1e-9
+
+    def test_empty_when_the_unanimous_tier_has_no_candidates(self, fleet, prices):
+        # A minimal, cheap ExposureResult-shaped stand-in with an empty
+        # unanimous tier -- confirms compute_mps_crosscheck degrades to "no
+        # slots to check" rather than falling back to the whole fleet.
+        empty_result = SimpleNamespace(
+            per_decision_deltas=[], unstable_decisions=[], baseline_genome=random_genome(fleet, random.Random(0))
+        )
+        rows = compute_mps_crosscheck(fleet, prices, empty_result)
+        assert rows == []
 
 
 class TestOutputSerialization:
@@ -569,6 +646,14 @@ class TestOutputSerialization:
 
         assert "description" in payload["capex_exposure"]
         assert payload["capex_exposure"]["total_usd"] == pytest.approx(result.capex_exposure.total_usd)
+
+        assert "description" in payload["majority_capex_exposure"]
+        assert payload["majority_capex_exposure"]["total_usd"] == pytest.approx(
+            result.majority_capex_exposure.total_usd
+        )
+        assert payload["summary"]["majority_capex_exposure_inr"] == pytest.approx(
+            result.majority_capex_exposure.total_inr
+        )
 
         assert "description" in payload["per_decision_deltas"]
         assert "must not be summed" in payload["per_decision_deltas"]["description"].lower()
