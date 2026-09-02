@@ -36,6 +36,37 @@ class VesselYearGene:
 
 Genome = list[VesselYearGene]
 
+#: `VesselYearGene`'s six decision fields, in the order `field_domains`
+#: reports them — shared by any caller that needs the *domain* of each
+#: field rather than one random draw from it (`qiea_solver.py`'s qudit
+#: registers, `mps_exposure.py`'s per-slot enumeration).
+DECISION_FIELDS: tuple[str, ...] = (
+    "route_id",
+    "speed_band_index",
+    "fuel_id",
+    "shore_power",
+    "pool_opt_in",
+    "borrow_election",
+)
+
+
+def field_domains(vessel: dict[str, Any], fleet: dict[str, Any], year: int) -> dict[str, list[Any]]:
+    """The full legal domain (not one sample) for each of `DECISION_FIELDS`
+    at this vessel-year slot, derived from the same `option_menu_for` /
+    `allowed_speed_band_indices` sources `random_gene` itself samples one
+    value from. Pure addition — `random_gene` is left untouched rather than
+    rebuilt on top of this, since its own RNG-draw sequence is already
+    covered by `solver.py`'s existing determinism tests."""
+    menu = option_menu_for(vessel, fleet, year)
+    return {
+        "route_id": list(menu.routes),
+        "speed_band_index": list(allowed_speed_band_indices(len(menu.speed_bands_knots))),
+        "fuel_id": list(menu.fuels),
+        "shore_power": [False, True] if menu.shore_power_available else [False],
+        "pool_opt_in": [False, True],
+        "borrow_election": [False, True],
+    }
+
 
 def random_gene(vessel: dict[str, Any], fleet: dict[str, Any], year: int, rng: random.Random) -> VesselYearGene:
     menu = option_menu_for(vessel, fleet, year)
