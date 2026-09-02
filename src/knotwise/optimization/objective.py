@@ -139,6 +139,177 @@ def vessel_year_facts(
     )
 
 
+#: Default fuel model for `evaluate(..., fuel_model=None)`. A module-level
+#: singleton rather than a fresh `PhysicsFuelModel()` per call, so
+#: `ObjectiveCache`'s identity-based binding stays valid across the many
+#: calls that don't pass one explicitly. `PhysicsFuelModel` is stateless
+#: (pure functions of its arguments), so sharing one is safe.
+_DEFAULT_FUEL_MODEL = PhysicsFuelModel()
+
+
+@dataclass(frozen=True)
+class _SlotLocal:
+    """The half of one vessel-year's contribution to `evaluate` that depends
+    only on that slot's own decisions.
+
+    Everything here is a pure function of `(vessel_id, year, route_id,
+    speed_band_index, fuel_id, shore_power)` plus the fixed
+    fleet/regulations/prices -- notably *not* of `pool_opt_in` or
+    `borrow_election` (those enter only through the cross-vessel FuelEU pass,
+    which is genuinely coupled and so is never cached) and not of any other
+    slot. That independence is exactly what makes it memoizable.
+    """
+
+    fuel: CostBreakdown
+    opex: CostBreakdown
+    time: CostBreakdown
+    cii: CostBreakdown
+    eu_ets: CostBreakdown
+    nzf: CostBreakdown
+    fuel_eu_applicability: RegimeApplicability
+    raw_balance_gco2eq: float
+    actual_intensity_gco2e_per_mj: float
+    regulated_energy_mj: float
+    dwt_tonnes: float
+
+
+def _slot_local_key(gene: Any) -> tuple[Any, ...]:
+    """The gene fields `_slot_local`'s output actually varies with."""
+    return (gene.vessel_id, gene.year, gene.route_id, gene.speed_band_index, gene.fuel_id, gene.shore_power)
+
+
+def _slot_local(
+    gene: Any,
+    vessel: dict[str, Any],
+    fleet: dict[str, Any],
+    regulations: dict[str, Any],
+    prices: dict[str, Any],
+    fuel_model: FuelModel,
+) -> _SlotLocal:
+    """One vessel-year's slot-local costs and regulation-facing figures."""
+    facts = vessel_year_facts(gene, vessel, fleet, regulations, fuel_model)
+    band_defaults = fleet["vessel_class_defaults"][vessel["band"]]
+    fuel_price_entry = prices["fuels"][gene.fuel_id]
+    label = f"{gene.vessel_id}/{gene.year}"
+    return _SlotLocal(
+        fuel=CostBreakdown(
+            facts.tonnes * fuel_price_entry["price_usd_per_tonne"],
+            fuel_price_entry["status"],
+            f"{label} fuel={gene.fuel_id}",
+        ),
+        opex=CostBreakdown(
+            band_defaults["fixed_opex_usd_per_year"] + facts.shore_power_extra_cost_usd,
+            "ILLUSTRATIVE",
+            label,
+        ),
+        time=CostBreakdown(
+            band_defaults["charter_premium_usd_per_sea_day"] * sea_days(fleet, gene.route_id, facts.speed_knots),
+            "ILLUSTRATIVE",
+            label,
+        ),
+        cii=cii_cost(facts.applicability["cii"]),
+        eu_ets=eu_ets_cost(
+            facts.applicability["eu_ets"],
+            facts.actual_ghg_intensity_gco2e_per_mj,
+            facts.energy_mj,
+            prices["carbon_allowances"]["eu_ets_eua"],
+        ),
+        nzf=nzf_cost(
+            regulations["regimes"]["nzf"],
+            facts.applicability["nzf"],
+            gene.year,
+            facts.actual_ghg_intensity_gco2e_per_mj,
+            facts.energy_mj,
+        ),
+        fuel_eu_applicability=facts.applicability["fuel_eu"],
+        raw_balance_gco2eq=facts.raw_fuel_eu_balance_gco2eq,
+        actual_intensity_gco2e_per_mj=facts.actual_ghg_intensity_gco2e_per_mj,
+        regulated_energy_mj=facts.regulated_energy_mj,
+        dwt_tonnes=band_defaults["dwt_tonnes"],
+    )
+
+
+def slot_local_total_usd(
+    gene: Any,
+    vessel: dict[str, Any],
+    fleet: dict[str, Any],
+    regulations: dict[str, Any],
+    prices: dict[str, Any],
+    fuel_model: FuelModel | None = None,
+    cache: ObjectiveCache | None = None,
+) -> float:
+    """The part of `evaluate`'s total this one vessel-year contributes on its
+    own: fuel + OPEX + time + CII + EU ETS + NZF.
+
+    This is a genuine *separable* lower structure of the objective, not an
+    approximation of it: every term here is computed from this slot alone and
+    is added into the total unchanged. What it deliberately omits is the part
+    that is genuinely coupled and therefore has no per-slot value -- FuelEU
+    (a per-vessel multi-year ledger plus cross-vessel pooling) and the demand
+    shortfall penalty (a per-route-year capacity sum).
+
+    Exposed for callers that need a per-decision cost signal rather than a
+    whole-plan number: `qiea_solver` builds each qudit register's initial
+    distribution from it (a mean-field product state over the separable part
+    of the objective), which is not something a population of point-valued
+    genomes can represent.
+    """
+    fuel_model = fuel_model or _DEFAULT_FUEL_MODEL
+    if cache is not None:
+        slots = cache.slots_for(fleet, regulations, prices, fuel_model)
+        key = _slot_local_key(gene)
+        local = slots.get(key)
+        if local is None:
+            local = _slot_local(gene, vessel, fleet, regulations, prices, fuel_model)
+            slots[key] = local
+    else:
+        local = _slot_local(gene, vessel, fleet, regulations, prices, fuel_model)
+    return (
+        local.fuel.amount_usd
+        + local.opex.amount_usd
+        + local.time.amount_usd
+        + local.cii.amount_usd
+        + local.eu_ets.amount_usd
+        + local.nzf.amount_usd
+    )
+
+
+class ObjectiveCache:
+    """Memoizes `_slot_local` across `evaluate` calls sharing one fixed
+    `(fleet, regulations, prices, fuel_model)`.
+
+    Why this pays: a solve evaluates thousands of genomes that differ in only
+    a slot or two (`solver._local_search_refine` changes exactly one field per
+    call), while the slot-local half is roughly two-thirds of `evaluate`'s
+    cost. The reachable key space is small and bounded -- per vessel-year, one
+    entry per (route x speed band x fuel x shore power) combination -- so a
+    whole solve fits in a few thousand entries.
+
+    Correctness is enforced rather than assumed: the cache holds a strong
+    reference to the four objects it was built against (so their identities
+    can't be recycled underneath it) and clears itself when handed a different
+    set. A caller that reuses one across sweep grid points, whose
+    `regulations` differ, therefore gets a cold cache -- never a wrong number.
+    """
+
+    def __init__(self) -> None:
+        self._bound: tuple[Any, ...] | None = None
+        self._slots: dict[tuple[Any, ...], _SlotLocal] = {}
+
+    def slots_for(
+        self,
+        fleet: dict[str, Any],
+        regulations: dict[str, Any],
+        prices: dict[str, Any],
+        fuel_model: FuelModel,
+    ) -> dict[tuple[Any, ...], _SlotLocal]:
+        bound = (fleet, regulations, prices, fuel_model)
+        if self._bound is None or any(a is not b for a, b in zip(self._bound, bound)):
+            self._bound = bound
+            self._slots = {}
+        return self._slots
+
+
 @dataclass(frozen=True)
 class ObjectiveResult:
     total_usd: float
@@ -155,8 +326,17 @@ def evaluate(
     regulations: dict[str, Any],
     prices: dict[str, Any],
     fuel_model: FuelModel | None = None,
+    cache: ObjectiveCache | None = None,
 ) -> ObjectiveResult:
-    fuel_model = fuel_model or PhysicsFuelModel()
+    """Total cost of one genome, with the per-category status labels.
+
+    `cache`, when given, memoizes the slot-local half of the work across
+    calls that share this call's `(fleet, regulations, prices, fuel_model)`
+    -- see `ObjectiveCache`. It is purely a speed device: the returned
+    `ObjectiveResult` is identical with or without it.
+    """
+    fuel_model = fuel_model or _DEFAULT_FUEL_MODEL
+    slot_cache = cache.slots_for(fleet, regulations, prices, fuel_model) if cache is not None else None
     vessels_by_id = {v["vessel_id"]: v for v in fleet["vessels"]}
 
     genes_by_vessel: dict[str, list] = defaultdict(list)
@@ -181,60 +361,31 @@ def evaluate(
 
     for vessel_id, genes in genes_by_vessel.items():
         vessel = vessels_by_id[vessel_id]
-        band_defaults = fleet["vessel_class_defaults"][vessel["band"]]
         for gene in genes:
-            facts = vessel_year_facts(gene, vessel, fleet, regulations, fuel_model)
+            if slot_cache is None:
+                local = _slot_local(gene, vessel, fleet, regulations, prices, fuel_model)
+            else:
+                key = _slot_local_key(gene)
+                local = slot_cache.get(key)
+                if local is None:
+                    local = _slot_local(gene, vessel, fleet, regulations, prices, fuel_model)
+                    slot_cache[key] = local
 
-            fuel_price_entry = prices["fuels"][gene.fuel_id]
-            fuel_costs.append(
-                CostBreakdown(
-                    facts.tonnes * fuel_price_entry["price_usd_per_tonne"],
-                    fuel_price_entry["status"],
-                    f"{vessel_id}/{gene.year} fuel={gene.fuel_id}",
-                )
-            )
-            opex_costs.append(
-                CostBreakdown(
-                    band_defaults["fixed_opex_usd_per_year"] + facts.shore_power_extra_cost_usd,
-                    "ILLUSTRATIVE",
-                    f"{vessel_id}/{gene.year}",
-                )
-            )
-            time_costs.append(
-                CostBreakdown(
-                    band_defaults["charter_premium_usd_per_sea_day"]
-                    * sea_days(fleet, gene.route_id, facts.speed_knots),
-                    "ILLUSTRATIVE",
-                    f"{vessel_id}/{gene.year}",
-                )
-            )
-            cii_costs.append(cii_cost(facts.applicability["cii"]))
-            eu_ets_costs.append(
-                eu_ets_cost(
-                    facts.applicability["eu_ets"],
-                    facts.actual_ghg_intensity_gco2e_per_mj,
-                    facts.energy_mj,
-                    prices["carbon_allowances"]["eu_ets_eua"],
-                )
-            )
-            nzf_costs.append(
-                nzf_cost(
-                    regulations["regimes"]["nzf"],
-                    facts.applicability["nzf"],
-                    gene.year,
-                    facts.actual_ghg_intensity_gco2e_per_mj,
-                    facts.energy_mj,
-                )
-            )
+            fuel_costs.append(local.fuel)
+            opex_costs.append(local.opex)
+            time_costs.append(local.time)
+            cii_costs.append(local.cii)
+            eu_ets_costs.append(local.eu_ets)
+            nzf_costs.append(local.nzf)
 
             context[(vessel_id, gene.year)] = {
                 "gene": gene,
-                "fuel_eu_applicability": facts.applicability["fuel_eu"],
-                "raw_balance": facts.raw_fuel_eu_balance_gco2eq,
-                "actual_intensity": facts.actual_ghg_intensity_gco2e_per_mj,
-                "regulated_energy_mj": facts.regulated_energy_mj,
+                "fuel_eu_applicability": local.fuel_eu_applicability,
+                "raw_balance": local.raw_balance_gco2eq,
+                "actual_intensity": local.actual_intensity_gco2e_per_mj,
+                "regulated_energy_mj": local.regulated_energy_mj,
             }
-            dwt_by_route_year[(gene.route_id, gene.year)] += band_defaults["dwt_tonnes"]
+            dwt_by_route_year[(gene.route_id, gene.year)] += local.dwt_tonnes
 
     # Pooling: resolved once per year, across every FuelEU-eligible vessel
     # that opted in that year (component 3's headline mechanism).
