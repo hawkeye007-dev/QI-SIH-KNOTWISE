@@ -2,13 +2,15 @@
 
 import random
 import time
+from dataclasses import replace
 
 import pytest
 
 from knotwise.fleet.loader import load_fleet, load_prices
+from knotwise.fleet.model import option_menu_for
 from knotwise.optimization.genome import random_genome
 from knotwise.optimization.objective import evaluate
-from knotwise.optimization.solver import run_ga
+from knotwise.optimization.solver import _local_search_refine, run_ga
 from knotwise.regulatory.loader import load_scenarios
 from knotwise.regulatory.scenario_resolution import resolve_regulations_for_scenario
 
@@ -71,6 +73,57 @@ class TestSearchQuality:
 
         result = run_ga(fleet, regulations, prices, seed=99, population_size=30, n_generations=20)
         assert result.best_total_usd < mean_random_total
+
+
+class TestLocalSearchRefine:
+    """Task 2R review follow-up: a bounded GA can leave individual
+    vessel-year slots at a locally suboptimal value even when the
+    population looks converged -- verified on this fleet as year-over-year
+    fuel trajectories that get *dirtier* with no cost benefit. This is the
+    coordinate-descent polish that closes exactly that gap."""
+
+    def test_fixes_a_deliberately_suboptimal_slot(self, fleet, regulations, prices):
+        rng = random.Random(3)
+        genome = random_genome(fleet, rng)
+
+        # Force one vessel-year onto its single most expensive fuel option
+        # -- an obviously locally-suboptimal slot the refiner should be
+        # able to fix without any GA search at all.
+        vessel = fleet["vessels"][0]
+        target_year = fleet["horizon_years"][0]
+        menu = option_menu_for(vessel, fleet, target_year)
+        index = next(
+            i for i, g in enumerate(genome) if g.vessel_id == vessel["vessel_id"] and g.year == target_year
+        )
+        worst_fuel = max(menu.fuels, key=lambda f: prices["fuels"][f]["price_usd_per_tonne"])
+        genome[index] = replace(genome[index], fuel_id=worst_fuel)
+        degraded_total = evaluate(genome, fleet, regulations, prices).total_usd
+
+        refined_genome, refined_total = _local_search_refine(genome, fleet, regulations, prices, random.Random(0))
+        assert refined_total <= degraded_total
+        assert refined_total == pytest.approx(evaluate(refined_genome, fleet, regulations, prices).total_usd)
+
+    def test_never_returns_a_higher_cost_than_the_input(self, fleet, regulations, prices):
+        rng = random.Random(4)
+        genome = random_genome(fleet, rng)
+        input_total = evaluate(genome, fleet, regulations, prices).total_usd
+        _, refined_total = _local_search_refine(genome, fleet, regulations, prices, random.Random(1))
+        assert refined_total <= input_total + 1e-6
+
+    def test_every_candidate_stays_within_its_own_menu(self, fleet, regulations, prices):
+        # Feasibility-closure is what lets the refiner skip a repair step
+        # (see genome.py's own docstring on the same guarantee for
+        # crossover/mutation) -- confirm it actually holds here too.
+        rng = random.Random(6)
+        genome = random_genome(fleet, rng)
+        refined_genome, _ = _local_search_refine(genome, fleet, regulations, prices, random.Random(2))
+        vessels_by_id = {v["vessel_id"]: v for v in fleet["vessels"]}
+        for gene in refined_genome:
+            menu = option_menu_for(vessels_by_id[gene.vessel_id], fleet, gene.year)
+            assert gene.fuel_id in menu.fuels
+            assert gene.route_id in menu.routes
+            assert gene.speed_band_index in range(len(menu.speed_bands_knots))
+            assert menu.shore_power_available or not gene.shore_power
 
 
 class TestFiveScenariosUnderSixtySeconds:
