@@ -109,19 +109,20 @@ export const ExposureModal: React.FC<Props> = ({ isOpen, onClose, exposure }) =>
                   </div>
                 </td>
                 <td className="text-center font-mono text-neutral-400">{summary.stable_exposed_decision_count}</td>
-                <td className="text-right font-mono text-neutral-500">₹{(summary.capex_exposure_inr / 1e7).toFixed(2)} Cr</td>
+                <td className="text-right font-mono text-neutral-500">
+                  {summary.capex_exposure_inr > 0 ? `₹${(summary.capex_exposure_inr / 1e7).toFixed(2)} Cr` : 'None flagged'}
+                </td>
               </tr>
               <tr>
                 <td>
                   <div className="font-semibold text-white">Majority Confidence Band</div>
-                  <div className="text-[11px] text-neutral-500">
-                    High-probability drill-down elections
-                    {hasCapexSignal ? ' — the headline figure above' : ' — ₹0 capex-typed this run; see the Regulatory Uncertainty Spread above instead'}
-                  </div>
+                  <div className="text-[11px] text-neutral-500">High-probability drill-down elections</div>
                 </td>
-                <td className="text-center font-mono font-bold text-white">{summary.majority_band_decision_count}</td>
+                <td className="text-center font-mono font-bold text-white">
+                  {summary.majority_band_decision_count > 0 ? summary.majority_band_decision_count : 'None this run'}
+                </td>
                 <td className="text-right font-mono text-white">
-                  ₹{(majorityCapex.total_inr / 1e7).toFixed(2)} Cr
+                  {majorityCapex.total_inr > 0 ? `₹${(majorityCapex.total_inr / 1e7).toFixed(2)} Cr` : 'No capex flagged'}
                 </td>
               </tr>
               <tr>
