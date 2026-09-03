@@ -1,0 +1,108 @@
+{
+  "document_version": "fuel-predictor-benchmark-v1",
+  "generated_at": "2026-09-03T02:11:16Z",
+  "status": "ILLUSTRATIVE",
+  "provenance_note": "Physics-only vs. LightGBM vs. MLP vs. tensor-train residual, leave-one-vessel-out cross-validated on SYNTHETIC telemetry -- there is no real AIS/ERA5/THETIS-MRV data pipeline in this repo (PLAN.md Phase 1 is unbuilt). The residual's generating process (hull-fouling age, sea state, gaussian noise -- see synthetic_telemetry.py's module docstring) is documented and known to whoever wrote it, so a model that approximates the learnable part of it is *expected* to beat physics-only on this data by construction. What this benchmark demonstrates is real: the feature engineering, leave-one-vessel-out CV methodology, and honest MAPE/R^2 reporting would apply directly to real telemetry the day Phase 1 exists. The specific numbers below are prototype-grade, not a claim about real-world model accuracy.",
+  "note": "Decision-support benchmark only -- does not affect outputs/demo_data.json or frontend/public/demo_data.json, which are unchanged by running this.",
+  "total_seconds": 8.54,
+  "n_samples": 4000,
+  "n_folds": 10,
+  "samples_per_vessel_year": 80,
+  "telemetry_seed": 0,
+  "arms": {
+    "physics": {
+      "mean_mape_percent": 3.993381203221366,
+      "best_fold_mape_percent": 2.1388898320501877,
+      "worst_fold_mape_percent": 5.595851535402373,
+      "mean_r_squared": 0.9834385165220038,
+      "fit_seconds_total": 0.0
+    },
+    "lightgbm": {
+      "mean_mape_percent": 2.435574316223448,
+      "best_fold_mape_percent": 2.108787819834624,
+      "worst_fold_mape_percent": 2.651803303821198,
+      "mean_r_squared": 0.9934861270849515,
+      "fit_seconds_total": 0.26
+    },
+    "mlp": {
+      "mean_mape_percent": 4.223838940129963,
+      "best_fold_mape_percent": 2.261293420632702,
+      "worst_fold_mape_percent": 13.617442548816,
+      "mean_r_squared": 0.9597040809616648,
+      "fit_seconds_total": 6.16
+    },
+    "tensor_train": {
+      "mean_mape_percent": 2.4695209306251997,
+      "best_fold_mape_percent": 2.0617202176796585,
+      "worst_fold_mape_percent": 2.8642458662273587,
+      "mean_r_squared": 0.9933512037532636,
+      "fit_seconds_total": 0.05
+    }
+  },
+  "fold_vessel_ids": [
+    "A1",
+    "A2",
+    "A3",
+    "A4",
+    "B1",
+    "B2",
+    "B3",
+    "C1",
+    "C2",
+    "C3"
+  ],
+  "per_fold_mape_percent": {
+    "physics": [
+      5.52,
+      5.596,
+      5.378,
+      5.489,
+      3.678,
+      3.851,
+      3.731,
+      2.253,
+      2.139,
+      2.298
+    ],
+    "lightgbm": [
+      2.537,
+      2.573,
+      2.634,
+      2.652,
+      2.46,
+      2.485,
+      2.383,
+      2.274,
+      2.109,
+      2.248
+    ],
+    "mlp": [
+      2.751,
+      2.65,
+      13.617,
+      3.433,
+      2.507,
+      2.689,
+      7.153,
+      2.796,
+      2.261,
+      2.38
+    ],
+    "tensor_train": [
+      2.522,
+      2.582,
+      2.864,
+      2.765,
+      2.515,
+      2.549,
+      2.346,
+      2.253,
+      2.062,
+      2.237
+    ]
+  },
+  "best_arm": "lightgbm",
+  "physics_only_mape_percent": 3.993381203221366,
+  "best_arm_mape_percent": 2.435574316223448,
+  "best_arm_improvement_percentage_points": 1.558
+}
