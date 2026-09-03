@@ -9,6 +9,7 @@ import { ExposureModal } from '@/components/ExposureModal';
 import { CostCurveModal } from '@/components/CostCurveModal';
 import { GuideModal } from '@/components/GuideModal';
 import { QuantumModal } from '@/components/QuantumModal';
+import { PredictorModal } from '@/components/PredictorModal';
 
 export default function Home() {
   const [data, setData] = useState<DemoData | null>(null);
@@ -23,6 +24,7 @@ export default function Home() {
   const [isCostCurveOpen, setIsCostCurveOpen] = useState(false);
   const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [isQuantumOpen, setIsQuantumOpen] = useState(false);
+  const [isPredictorOpen, setIsPredictorOpen] = useState(false);
 
   // Reallocation Notification Toast State
   const [notification, setNotification] = useState<string | null>(null);
@@ -139,6 +141,23 @@ export default function Home() {
   const ps = data.exposure.plan_spread;
   const totalCostUsd = closest ? closest.total_usd : 0;
   const usdM = (v: number) => `$${(v / 1e6).toFixed(2)}M`;
+  const predictorBenchmark = data.fuel_predictor_benchmark;
+  const predictorImprovementPct =
+    predictorBenchmark.available && predictorBenchmark.physics_only_mape_percent > 0
+      ? ((predictorBenchmark.physics_only_mape_percent - predictorBenchmark.best_arm_mape_percent) /
+          predictorBenchmark.physics_only_mape_percent) *
+        100
+      : 0;
+  // Real, measured dollar gap between the quantum-inspired search and a
+  // naive (uniform-prior) search at the same budget, before either is
+  // refined -- the money version of the "Search Advantage" percentage
+  // above, not a separate/different comparison.
+  const optimizerBenchmark = data.optimizer_benchmark;
+  const optimizerMoneySavedInr = optimizerBenchmark.available
+    ? (optimizerBenchmark.search_attribution.raw_search_polish_disabled.uniform_init.mean_total_usd -
+        optimizerBenchmark.search_attribution.raw_search_polish_disabled.mean_field_init.mean_total_usd) *
+      data.exposure.fx.usd_to_inr_rate
+    : 0;
 
 
   return (
@@ -176,6 +195,14 @@ export default function Home() {
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
             <span>Solver: {data.metadata.optimizer.toUpperCase()}</span>
+          </button>
+          <button
+            onClick={() => setIsPredictorOpen(true)}
+            title="Fuel-consumption prediction accuracy"
+            className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-emerald-700 text-xs font-mono text-white rounded transition-all flex items-center gap-1.5"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
+            <span>Fuel Prediction</span>
           </button>
           <span className="tag">IMO 4 Dec 2026 Vote</span>
         </div>
@@ -381,6 +408,59 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        {/* Fuel-predictor band -- the one place on this site that talks about
+            fuel-consumption PREDICTION (PS Objective 1) as distinct from
+            fleet OPTIMIZATION. Every figure reads live from
+            fuel_predictor_benchmark, which build_demo_data.py embeds from
+            scripts/benchmark_fuel_predictor.py. */}
+        {data.fuel_predictor_benchmark.available && (
+          <div className="metric-card">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex-1 min-w-[240px]">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
+                    Fuel Consumption Prediction
+                  </span>
+                </div>
+                <p className="text-[11px] text-neutral-400 font-sans max-w-2xl leading-relaxed">
+                  Machine-learning and tensor-inspired models predict fuel burn more accurately than
+                  physics-only estimation, validated across every vessel in the fleet.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-stretch gap-6">
+                <div>
+                  <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
+                    Accuracy Gain
+                  </div>
+                  <div className="text-xl font-mono font-bold text-emerald-400">
+                    +{predictorImprovementPct.toFixed(0)}%
+                  </div>
+                  <div className="text-[10px] font-mono text-neutral-500">vs. physics-only</div>
+                </div>
+                <div>
+                  <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
+                    Best Model
+                  </div>
+                  <div className="text-xl font-mono font-bold text-white">
+                    {predictorBenchmark.available ? predictorBenchmark.best_arm.replace('_', '-').toUpperCase() : ''}
+                  </div>
+                  <div className="text-[10px] font-mono text-emerald-400 font-semibold">
+                    {predictorBenchmark.available ? (100 - predictorBenchmark.best_arm_mape_percent).toFixed(1) : ''}% accurate
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsPredictorOpen(true)}
+                  className="self-center px-4 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-xs font-mono text-white rounded transition-all flex items-center gap-2 whitespace-nowrap"
+                >
+                  <span>Open Prediction Benchmark</span>
+                  <span>➔</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* Footer */}
@@ -420,6 +500,12 @@ export default function Home() {
         isOpen={isQuantumOpen}
         onClose={() => setIsQuantumOpen(false)}
         benchmark={data.optimizer_benchmark}
+      />
+
+      <PredictorModal
+        isOpen={isPredictorOpen}
+        onClose={() => setIsPredictorOpen(false)}
+        benchmark={data.fuel_predictor_benchmark}
       />
 
       <GuideModal

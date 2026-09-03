@@ -171,7 +171,51 @@ export interface DemoData {
   sweep: SweepData;
   exposure: ExposureData;
   optimizer_benchmark: OptimizerBenchmark;
+  fuel_predictor_benchmark: FuelPredictorBenchmark;
 }
+
+/** One arm's leave-one-vessel-out cross-validation summary
+ *  (scripts/benchmark_fuel_predictor.py). */
+export interface FuelPredictorArmResult {
+  mean_mape_percent: number;
+  best_fold_mape_percent: number;
+  worst_fold_mape_percent: number;
+  mean_r_squared: number;
+  fit_seconds_total: number;
+}
+
+export type FuelPredictorArmId = 'physics' | 'lightgbm' | 'mlp' | 'tensor_train';
+
+/** `build_demo_data.py` gives "benchmark was never run" a defined shape
+ *  rather than omitting the key, same convention as `OptimizerBenchmark`. */
+export type FuelPredictorBenchmark =
+  | {
+      available: false;
+      status: 'NOT_AVAILABLE';
+      demo_built_with_predictor: string;
+      notes: string;
+    }
+  | {
+      available: true;
+      status: string;
+      generated_at: string;
+      provenance_note: string;
+      note: string;
+      demo_built_with_predictor: string;
+      freshness_note: string;
+      total_seconds: number;
+      n_samples: number;
+      n_folds: number;
+      samples_per_vessel_year: number;
+      telemetry_seed: number;
+      arms: Record<FuelPredictorArmId, FuelPredictorArmResult>;
+      fold_vessel_ids: string[];
+      per_fold_mape_percent: Record<FuelPredictorArmId, number[]>;
+      best_arm: FuelPredictorArmId;
+      physics_only_mape_percent: number;
+      best_arm_mape_percent: number;
+      best_arm_improvement_percentage_points: number;
+    };
 
 /** One arm of the initialization ablation: N independent runs of the QIEA
  *  search at fixed settings, summarized by their total-cost distribution. */
