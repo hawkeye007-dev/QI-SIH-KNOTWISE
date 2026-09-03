@@ -16,6 +16,9 @@ node_modules/
 .env
 .env.*
 
+# Docs (internal build notes, prompts, presenter scripts -- not for the repo)
+docs/
+
 # OS
 .DS_Store
 
