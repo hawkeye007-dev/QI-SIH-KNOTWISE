@@ -271,3 +271,21 @@ def compare_with_classical(mps_result: MPSExposureResult, classical_result: Any)
                 status = "not_exposed"
             rows.append(ExposureComparisonRow(slot.vessel_id, slot.year, field_name, mi, status))
     return sorted(rows, key=lambda row: row.mutual_information_bits, reverse=True)
+
+
+def comparison_rows_to_dicts(rows: list[ExposureComparisonRow]) -> list[dict[str, Any]]:
+    """A JSON-serializable view of `compare_with_classical`'s output —
+    the module that owns `ExposureComparisonRow` owns its serialization,
+    mirroring `exposure.py`'s own `_exposed_decision_to_dict` pattern
+    rather than leaving a caller (`scripts/build_demo_data.py`) to reach
+    into the dataclass's fields itself."""
+    return [
+        {
+            "vessel_id": row.vessel_id,
+            "year": row.year,
+            "decision": row.decision,
+            "mutual_information_bits": row.mutual_information_bits,
+            "classical_status": row.classical_status,
+        }
+        for row in rows
+    ]
