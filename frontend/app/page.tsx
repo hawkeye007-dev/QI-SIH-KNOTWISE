@@ -165,7 +165,7 @@ export default function Home() {
       {/* Notification Toast -- strategy reallocations on price change, or a
           "why is this N/A" explanation when a no-price proposal is clicked */}
       {notification && (
-        <div className="fixed bottom-6 right-6 z-[1000] max-w-sm bg-neutral-900 border border-neutral-700 px-4 py-3 rounded-lg shadow-2xl flex items-start gap-3 animate-bounce">
+        <div className="fixed bottom-6 right-6 z-[1000] max-w-sm bg-neutral-900 border border-neutral-700 px-4 py-3 rounded-lg shadow-2xl flex items-start gap-3">
           <span className="w-2 h-2 mt-1 rounded-full bg-white animate-ping shrink-0" />
           <span className="text-xs font-mono text-white font-medium leading-relaxed">{notification}</span>
         </div>
