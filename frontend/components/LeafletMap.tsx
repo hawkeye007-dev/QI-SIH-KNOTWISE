@@ -72,7 +72,7 @@ const LeafletMap: React.FC<Props> = ({ routesGeo, currentConfig, baselineConfig,
   };
 
   return (
-    <div className="relative w-full h-[460px] border border-neutral-800 rounded-xl overflow-hidden bg-neutral-950 shadow-inner">
+    <div className="relative w-full h-full min-h-[420px] border border-neutral-800 rounded-xl overflow-hidden bg-neutral-950 shadow-inner">
       <MapContainer center={[18, 60]} zoom={3} style={{ width: '100%', height: '100%' }} zoomControl={true}>
         {/* Standard OpenStreetMap tiles, no API key -- inverted via CSS
             (.leaflet-tile in globals.css) to match the dark theme. */}

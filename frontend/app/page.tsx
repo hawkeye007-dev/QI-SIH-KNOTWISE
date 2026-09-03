@@ -221,10 +221,13 @@ export default function Home() {
           onNoPriceClick={(label, reason) => showNotification(`${label} has no price on this axis: ${reason}`, 6000)}
         />
 
-        {/* Dashboard Content Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        {/* Dashboard Content Grid -- stretch (default), not items-start:
+            the map now grows to match the right column's real height
+            instead of leaving empty space below a fixed-height map when
+            the three cards stack taller than it. */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Left Column: Interactive Leaflet Map */}
-          <div className="lg:col-span-2">
+          <div className="lg:col-span-2 flex flex-col">
             <div className="mb-1 flex items-center justify-between">
               <span className="text-xs font-mono font-semibold uppercase text-white">
                 Global Trade Lanes & Active Vessels
@@ -233,12 +236,14 @@ export default function Home() {
                 Interactive Map • Scroll/Buttons to Zoom
               </span>
             </div>
-            <MapView
-              routesGeo={data.routes_geo}
-              currentConfig={currentConfig}
-              baselineConfig={baselineConfig}
-              vessels={data.fleet.vessels}
-            />
+            <div className="flex-1 min-h-0">
+              <MapView
+                routesGeo={data.routes_geo}
+                currentConfig={currentConfig}
+                baselineConfig={baselineConfig}
+                vessels={data.fleet.vessels}
+              />
+            </div>
           </div>
 
           {/* Right Column: Key Metrics & Modal Overlay Buttons */}
