@@ -43,7 +43,7 @@ import numpy as np
 
 from knotwise.optimization import tensor_network
 from knotwise.optimization.genome import DECISION_FIELDS, Genome, field_domains
-from knotwise.optimization.objective import evaluate
+from knotwise.optimization.objective import ObjectiveCache, evaluate
 from knotwise.regulatory.loader import load_scenarios
 from knotwise.regulatory.scenario_resolution import resolve_regulations_for_scenario
 
@@ -85,6 +85,19 @@ def vessel_year_born_machine(
     too large). This is an explicit, ILLUSTRATIVE modelling choice, in the
     same spirit as `CostBreakdown.status` labelling elsewhere in this
     codebase — not a fitted or verified parameter.
+
+    Perf note: within one scenario's inner loop, every enumerated combo
+    shares the *same* baseline value for the other ~32 vessel-year slots in
+    `baseline_genome` -- only this one slot's trial gene changes. An
+    `ObjectiveCache`, re-bound automatically every time `regulations`'
+    identity changes (i.e. every scenario switch -- the standard "re-bound
+    per iteration" idiom `sweep._apply_monotonic_envelope` already uses),
+    turns those ~32 other slots' cost computations from "recomputed on every
+    combo" into "computed once per scenario, reused for the rest". Measured
+    on the case-study fleet's actual unanimous-tier candidate slots (33
+    slots at `--fast` settings): `exposure.compute_mps_crosscheck` went from
+    94.1s to 22.7s end to end (~2.85s/slot to ~0.69s/slot) once this cache
+    was added -- not assumed, timed before and after.
     """
     vessels_by_id = {v["vessel_id"]: v for v in fleet["vessels"]}
     vessel = vessels_by_id[vessel_id]
@@ -99,12 +112,13 @@ def vessel_year_born_machine(
 
     scenario_ids = [s["id"] for s in load_scenarios()["scenarios"]]
     costs = np.empty((len(scenario_ids), len(combos)))
+    cache = ObjectiveCache()  # re-bound per scenario (regulations identity changes each r_index); see ObjectiveCache
     for r_index, scenario_id in enumerate(scenario_ids):
         regulations = resolve_regulations_for_scenario(scenario_id)
         for c_index, combo in enumerate(combos):
             trial_gene = replace(baseline_genome[slot_index], **dict(zip(fields, combo)))
             trial_genome = baseline_genome[:slot_index] + [trial_gene] + baseline_genome[slot_index + 1 :]
-            costs[r_index, c_index] = evaluate(trial_genome, fleet, regulations, prices).total_usd
+            costs[r_index, c_index] = evaluate(trial_genome, fleet, regulations, prices, cache=cache).total_usd
 
     if temperature is None:
         temperature = float(np.std(costs))
