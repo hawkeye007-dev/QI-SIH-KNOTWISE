@@ -127,6 +127,12 @@ FAST_EXPOSURE_KWARGS = dict(seeds=(0, 1), population_size=30, n_generations=30)
 #: Read, never written, by this script.
 BENCHMARK_PATH = PROJECT_ROOT / "outputs" / "optimizer_benchmark.json"
 
+#: Where `scripts/benchmark_fuel_predictor.py` leaves its physics-vs-
+#: LightGBM-vs-MLP-vs-tensor-train comparison. Read, never written, by this
+#: script -- same reasoning as BENCHMARK_PATH: a separate decision-support
+#: artifact, not recomputed on every build.
+FUEL_PREDICTOR_BENCHMARK_PATH = PROJECT_ROOT / "outputs" / "fuel_predictor_benchmark.json"
+
 
 def load_optimizer_benchmark(demo_optimizer: str) -> dict:
     """Embed `benchmark_optimizers.py`'s comparison, if it has been run.
@@ -166,6 +172,48 @@ def load_optimizer_benchmark(demo_optimizer: str) -> dict:
         "benchmark settings -- not at the settings used to build this demo, and not "
         "necessarily from the same revision. It describes how the two solvers compare to "
         f"each other; the plans shown elsewhere in this file were solved with '{demo_optimizer}'."
+    )
+    return benchmark
+
+
+def load_fuel_predictor_benchmark() -> dict:
+    """Embed `benchmark_fuel_predictor.py`'s physics-vs-LightGBM-vs-MLP-vs-
+    tensor-train comparison, if it has been run — same "defined shape for
+    absent, not zero" contract as `load_optimizer_benchmark`, and for the
+    same reason: this demo's live fleet plan is solved with `PhysicsFuelModel`
+    regardless (see fuel_predictors.py's module docstring for why the learned
+    arms stay a standalone comparison rather than being swapped into the
+    solver), so recomputing this on every build would answer a question that
+    doesn't change between builds, at real cost, for no benefit to the demo.
+    """
+    if not FUEL_PREDICTOR_BENCHMARK_PATH.exists():
+        return {
+            "status": "NOT_AVAILABLE",
+            "available": False,
+            "demo_built_with_predictor": "physics",
+            "notes": (
+                f"No fuel-predictor benchmark found at {FUEL_PREDICTOR_BENCHMARK_PATH.name}. Run "
+                "scripts/benchmark_fuel_predictor.py to produce one; it writes only its own "
+                "outputs and does not affect this file."
+            ),
+        }
+
+    with open(FUEL_PREDICTOR_BENCHMARK_PATH) as handle:
+        benchmark = json.load(handle)
+
+    benchmark["available"] = True
+    # The live fleet plan is always solved with the physics-only fuel model
+    # (objective.evaluate's own default) -- the learned arms are a
+    # standalone benchmark, never swapped into the solver this pass
+    # (fuel_predictors.py's module docstring explains the design reason).
+    benchmark["demo_built_with_predictor"] = "physics"
+    benchmark["freshness_note"] = (
+        "This comparison was produced by a separate run of scripts/benchmark_fuel_predictor.py "
+        f"at {benchmark.get('generated_at', 'an unrecorded time')}, on synthetic telemetry -- not "
+        "at the settings used to build this demo, and not necessarily from the same revision. "
+        "It describes how the four fuel-consumption prediction arms compare to each other on "
+        "that synthetic data; the fleet plan shown elsewhere in this file is solved with the "
+        "physics-only model regardless."
     )
     return benchmark
 
@@ -269,6 +317,7 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
         "sweep": sweep_dict,
         "exposure": exposure_dict,
         "optimizer_benchmark": load_optimizer_benchmark(optimizer),
+        "fuel_predictor_benchmark": load_fuel_predictor_benchmark(),
     }
 
     # Print summary highlights
@@ -302,6 +351,14 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
               f"delivered {attribution.get('end_to_end_improvement_fraction', 0):+.1%}")
     else:
         print("  - Optimizer benchmark: NOT AVAILABLE (run scripts/benchmark_optimizers.py)")
+    predictor_benchmark = demo_data["fuel_predictor_benchmark"]
+    if predictor_benchmark.get("available"):
+        print(f"  - Fuel-predictor benchmark embedded (generated {predictor_benchmark.get('generated_at')}); "
+              f"best arm '{predictor_benchmark.get('best_arm')}' "
+              f"{predictor_benchmark.get('best_arm_mape_percent', 0):.2f}% MAPE vs. physics-only "
+              f"{predictor_benchmark.get('physics_only_mape_percent', 0):.2f}%")
+    else:
+        print("  - Fuel-predictor benchmark: NOT AVAILABLE (run scripts/benchmark_fuel_predictor.py)")
     print(f"  - Total fleet cost {'falls' if total_delta_usd < 0 else 'rises'} "
           f"${abs(total_delta_usd)/1e6:,.1f}M from $0/t to $1000/t "
           f"({'this fleet nets an NZF surplus credit at every price -- see sweep.py docstring for why that is correct, not a bug' if total_delta_usd < 0 else 'net NZF deficit dominates this fleet'})")
