@@ -108,7 +108,9 @@ class TestReattemptCorrectedPoints:
 
     def test_leaves_uncorrected_points_untouched(self, fleet, prices):
         genome = random_genome(fleet, random.Random(1))
-        point = GridPointResult(100, genome, 999_999_999.0, 0.1, False, 10)  # envelope_corrected=False (default)
+        point = GridPointResult(
+            100, genome, 999_999_999.0, 0.1, False, 10, compliance_usd=0.0
+        )  # envelope_corrected=False (default)
         base_regulations = resolve_regulations_for_scenario("approved_text")
         result = _reattempt_corrected_points(
             [point], fleet, prices, base_regulations, seed=0, population_size=10, n_generations=5, tournament_size=3
@@ -127,6 +129,7 @@ class TestReattemptCorrectedPoints:
             0.1,
             False,
             10,
+            compliance_usd=0.0,
             envelope_corrected=True,
             envelope_source_price_usd_per_tco2e=500,
         )
@@ -162,6 +165,7 @@ class TestReattemptCorrectedPoints:
             0.1,
             False,
             60,
+            compliance_usd=0.0,
             envelope_corrected=True,
             envelope_source_price_usd_per_tco2e=500,
         )
@@ -176,8 +180,8 @@ class TestExtractSwitchingPoints:
         genome_a = [_gene("A1", 2028, fuel_id="hfo_scrubber")]
         genome_b = [_gene("A1", 2028, fuel_id="b30_blend")]
         grid = [
-            GridPointResult(0, genome_a, 100.0, 0.1, False, 10),
-            GridPointResult(25, genome_b, 90.0, 0.05, True, 5),
+            GridPointResult(0, genome_a, 100.0, 0.1, False, 10, compliance_usd=0.0),
+            GridPointResult(25, genome_b, 90.0, 0.05, True, 5, compliance_usd=0.0),
         ]
         points = extract_switching_points(grid)
         assert len(points) == 1
@@ -192,8 +196,8 @@ class TestExtractSwitchingPoints:
     def test_no_change_means_no_switching_point(self):
         genome = [_gene("A1", 2028)]
         grid = [
-            GridPointResult(0, genome, 100.0, 0.1, False, 10),
-            GridPointResult(25, list(genome), 100.0, 0.05, True, 5),
+            GridPointResult(0, genome, 100.0, 0.1, False, 10, compliance_usd=0.0),
+            GridPointResult(25, list(genome), 100.0, 0.05, True, 5, compliance_usd=0.0),
         ]
         assert extract_switching_points(grid) == []
 
@@ -202,8 +206,8 @@ class TestExtractSwitchingPoints:
         genome_a = [_gene(c_vessel_id, 2028, fuel_id="hfo_scrubber")]
         genome_b = [_gene(c_vessel_id, 2028, fuel_id="b30_blend")]
         grid = [
-            GridPointResult(0, genome_a, 100.0, 0.1, False, 10),
-            GridPointResult(25, genome_b, 90.0, 0.05, True, 5),
+            GridPointResult(0, genome_a, 100.0, 0.1, False, 10, compliance_usd=0.0),
+            GridPointResult(25, genome_b, 90.0, 0.05, True, 5, compliance_usd=0.0),
         ]
         assert extract_switching_points(grid, fleet=fleet) == []
         assert extract_switching_points(grid) != []  # no fleet given -> no band filter
@@ -326,6 +330,23 @@ class TestRunSweep:
                     f"the genome discovered at price {candidate.price_usd_per_tco2e} achieves "
                     f"{candidate_total} there -- the envelope should already have picked this up"
                 )
+
+    def test_compliance_usd_is_a_bounded_real_component_of_total(self, full_sweep, fleet, prices):
+        # compliance_usd is the cii+eu_ets+nzf+fuel_eu slice of total_usd (the
+        # sensitivity chart's "carbon bill" series) -- it must never exceed
+        # total_usd (fuel/opex/time/demand are each >= 0 by construction, so
+        # total - compliance_usd >= 0 algebraically), and it must be the same
+        # real figure objective.evaluate() would report for that exact
+        # genome under that exact grid point's own (price-clamped) NZF
+        # regulations -- never a stale or re-derived approximation.
+        result, _ = full_sweep
+        base_regulations = resolve_regulations_for_scenario("approved_text")
+        for gp in result.grid_points:
+            assert gp.compliance_usd <= gp.total_usd + 1e-6
+            regulations = _nzf_price_override(base_regulations, gp.price_usd_per_tco2e)
+            breakdown = evaluate(gp.genome, fleet, regulations, prices)
+            expected_compliance = sum(c.amount_usd for c in breakdown.compliance_costs.values())
+            assert gp.compliance_usd == pytest.approx(expected_compliance, abs=1e-3)
 
     def test_reproducible_from_seed(self, fleet, prices):
         kwargs = {"seed": 2, "population_size": 16, "cold_generations": 15, "warm_generations": 6}
@@ -455,3 +476,5 @@ class TestOutputSerialization:
         assert payload["warm_start_benchmark"]["warm_seconds"] <= payload["warm_start_benchmark"]["cold_seconds"]
         assert "envelope_corrected" in payload["grid_points"][0]
         assert "envelope_source_price_usd_per_tco2e" in payload["grid_points"][0]
+        assert "compliance_usd" in payload["grid_points"][0]
+        assert payload["grid_points"][0]["compliance_usd"] <= payload["grid_points"][0]["total_usd"] + 1e-6

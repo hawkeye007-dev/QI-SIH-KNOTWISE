@@ -204,6 +204,16 @@ class GridPointResult:
     solve_seconds: float
     warm_started: bool
     generations_run: int
+    #: The compliance-only slice of `total_usd` (sum of `objective.
+    #: ObjectiveResult.compliance_costs.values()` -- cii + eu_ets + nzf +
+    #: fuel_eu) at this grid point's genome and price. Always <= total_usd
+    #: (it's a component of it, not a separate figure) -- what the sensitivity
+    #: chart needs to show "total cost is nearly flat" and "the carbon bill
+    #: itself is not" as two honest, non-contradictory lines, since fuel/opex/
+    #: time cost falls as the plan de-carbonizes even while the compliance
+    #: bill it's avoiding rises. No default -- every construction site must
+    #: state it explicitly rather than silently default to 0.0.
+    compliance_usd: float
     #: Set by `_apply_monotonic_envelope` when a *different* grid point's
     #: already-discovered genome priced out cheaper at this price than this
     #: point's own GA solve did -- never a new search, just re-evaluating a
@@ -664,14 +674,14 @@ def _apply_monotonic_envelope(
         target_regulations = regulations_by_price[target.price_usd_per_tco2e]
         best = target
         best_total = target.total_usd
+        best_compliance = target.compliance_usd
         for candidate in grid_points:
             if candidate.price_usd_per_tco2e == target.price_usd_per_tco2e:
                 continue
-            candidate_total_at_target_price = evaluate(
-                candidate.genome, fleet, target_regulations, prices, fuel_model, cache=cache
-            ).total_usd
-            if candidate_total_at_target_price < best_total:
-                best_total = candidate_total_at_target_price
+            candidate_result = evaluate(candidate.genome, fleet, target_regulations, prices, fuel_model, cache=cache)
+            if candidate_result.total_usd < best_total:
+                best_total = candidate_result.total_usd
+                best_compliance = sum(c.amount_usd for c in candidate_result.compliance_costs.values())
                 best = candidate
         if best is target:
             corrected.append(target)
@@ -684,6 +694,7 @@ def _apply_monotonic_envelope(
                     solve_seconds=target.solve_seconds,
                     warm_started=target.warm_started,
                     generations_run=target.generations_run,
+                    compliance_usd=best_compliance,
                     envelope_corrected=True,
                     envelope_source_price_usd_per_tco2e=best.price_usd_per_tco2e,
                 )
@@ -758,6 +769,7 @@ def _reattempt_corrected_points(
                     solve_seconds=point.solve_seconds,
                     warm_started=False,
                     generations_run=n_generations,
+                    compliance_usd=sum(c.amount_usd for c in result.best_breakdown.compliance_costs.values()),
                     envelope_corrected=False,
                     envelope_source_price_usd_per_tco2e=None,
                 )
@@ -846,7 +858,15 @@ def run_sweep(
             )
             elapsed = time.perf_counter() - start
             grid_points.append(
-                GridPointResult(price, result.best_genome, result.best_total_usd, elapsed, False, cold_generations)
+                GridPointResult(
+                    price_usd_per_tco2e=price,
+                    genome=result.best_genome,
+                    total_usd=result.best_total_usd,
+                    solve_seconds=elapsed,
+                    warm_started=False,
+                    generations_run=cold_generations,
+                    compliance_usd=sum(c.amount_usd for c in result.best_breakdown.compliance_costs.values()),
+                )
             )
         else:
             start = time.perf_counter()
@@ -863,7 +883,15 @@ def run_sweep(
             )
             warm_elapsed = time.perf_counter() - start
             grid_points.append(
-                GridPointResult(price, result.best_genome, result.best_total_usd, warm_elapsed, True, warm_generations)
+                GridPointResult(
+                    price_usd_per_tco2e=price,
+                    genome=result.best_genome,
+                    total_usd=result.best_total_usd,
+                    solve_seconds=warm_elapsed,
+                    warm_started=True,
+                    generations_run=warm_generations,
+                    compliance_usd=sum(c.amount_usd for c in result.best_breakdown.compliance_costs.values()),
+                )
             )
 
             if warm_start_benchmark is None:
@@ -1078,6 +1106,7 @@ def sweep_result_to_dict(result: SweepResult) -> dict[str, Any]:
             {
                 "price_usd_per_tco2e": gp.price_usd_per_tco2e,
                 "total_usd": gp.total_usd,
+                "compliance_usd": gp.compliance_usd,
                 "solve_seconds": gp.solve_seconds,
                 "warm_started": gp.warm_started,
                 "generations_run": gp.generations_run,
