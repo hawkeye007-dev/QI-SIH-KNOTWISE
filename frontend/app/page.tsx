@@ -281,14 +281,20 @@ export default function Home() {
                 <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
                   Vessels Modifying Strategy
                 </span>
-                <span className="tag font-mono">{activeFlips.length} Reallocations</span>
+                <span className={`tag font-mono ${flippedVesselCount === 0 ? 'text-emerald-400 border-emerald-800' : ''}`}>
+                  {flippedVesselCount === 0 ? 'Stable' : `${activeFlips.length} Reallocations`}
+                </span>
               </div>
-              <div className="text-2xl font-mono font-bold text-white mt-1">
-                {flippedVesselCount} Vessel{flippedVesselCount === 1 ? '' : 's'} • at ${price}/t
+              <div className={`text-2xl font-mono font-bold mt-1 ${flippedVesselCount === 0 ? 'text-emerald-400' : 'text-white'}`}>
+                {flippedVesselCount === 0
+                  ? 'Plan Fully Locked In ✓'
+                  : <>{flippedVesselCount} Vessel{flippedVesselCount === 1 ? '' : 's'} • at ${price}/t</>}
               </div>
               <div className="text-xs text-neutral-400 mt-0.5 font-sans">
                 {planHasStabilized
-                  ? `Plan has fully stabilized above $${highestSwitchingPrice}/t — no further fuel, speed, route, or shore-power switch is worth making beyond this price.`
+                  ? `No fuel, speed, route, or shore-power switch beats the current plan above $${highestSwitchingPrice}/t — every vessel has already found its optimal strategy.`
+                  : flippedVesselCount === 0
+                  ? `Every vessel's current strategy already beats switching, at exactly $${price}/t.`
                   : 'Changes in fuel, speed, assigned routes, and shore power.'}
               </div>
               <button
