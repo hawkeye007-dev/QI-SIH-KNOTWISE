@@ -144,7 +144,6 @@ export const QuantumModal: React.FC<Props> = ({ isOpen, onClose, benchmark }) =>
 
   const metrics: { label: string; get: (r: OptimizerRun) => string; lowerIsBetter: boolean; note?: string }[] = [
     { label: 'Min plan cost across grid', get: r => usdM(r.min_total_usd_across_grid), lowerIsBetter: true },
-    { label: 'Wall-clock (sweep + exposure)', get: r => `${r.total_seconds.toFixed(1)}s`, lowerIsBetter: true },
     { label: 'Switching points found', get: r => `${r.n_switching_points}`, lowerIsBetter: false },
     { label: 'Unstable decisions', get: r => `${r.n_unanimous_unstable}`, lowerIsBetter: true },
     { label: 'Plan spread', get: r => `₹${r.plan_spread_inr_crore.toFixed(1)} Cr`, lowerIsBetter: false },
