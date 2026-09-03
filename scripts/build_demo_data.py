@@ -19,7 +19,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from knotwise.fleet.loader import load_fleet, load_prices
-from knotwise.optimization.exposure import compute_exposure, exposure_result_to_dict
+from knotwise.optimization.exposure import (
+    compute_exposure,
+    compute_mps_crosscheck,
+    exposure_result_to_dict,
+)
+from knotwise.optimization.mps_exposure import comparison_rows_to_dicts
 from knotwise.optimization.sweep import DEFAULT_PRICE_GRID, run_sweep, sweep_result_to_dict
 
 ROUTES_GEO = {
@@ -175,12 +180,12 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
     exposure_kwargs = FAST_EXPOSURE_KWARGS if fast else PRODUCTION_EXPOSURE_KWARGS
 
     # 1. Load Fleet and Price configurations
-    print("[1/5] Loading fleet and prices specifications...")
+    print("[1/6] Loading fleet and prices specifications...")
     fleet = load_fleet()
     prices = load_prices()
 
     # 2. Run carbon-price sweep ($0–$1000 step $25, warm-started)
-    print(f"[2/5] Running carbon-price sweep ($0–$1000, step $25, warm-started) with {sweep_kwargs}...")
+    print(f"[2/6] Running carbon-price sweep ($0–$1000, step $25, warm-started) with {sweep_kwargs}...")
     sweep_start = time.perf_counter()
     sweep_result = run_sweep(
         fleet,
@@ -198,7 +203,7 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
           " own GA solve with a cheaper genome found at another price.")
 
     # Validate grid boundaries for computed scenario axis ticks
-    print("[3/5] Validating scenario axis positions against price grid...")
+    print("[3/6] Validating scenario axis positions against price grid...")
     grid_min = min(DEFAULT_PRICE_GRID)
     grid_max = max(DEFAULT_PRICE_GRID)
     for tick in sweep_result.scenario_ticks:
@@ -208,7 +213,7 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
             assert grid_min <= pos <= grid_max, f"Position {pos} for {tick.scenario_id} is outside grid [{grid_min}, {grid_max}]"
 
     # 3. Run cross-scenario exposure analysis
-    print(f"[4/5] Computing multi-scenario exposure map with {exposure_kwargs}...")
+    print(f"[4/6] Computing multi-scenario exposure map with {exposure_kwargs}...")
     exp_start = time.perf_counter()
     exposure_result = compute_exposure(
         fleet,
@@ -220,10 +225,35 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
     exp_elapsed = time.perf_counter() - exp_start
     print(f"      Exposure analysis completed in {exp_elapsed:.1f}s.")
 
+    # PLAN §8.3(b)'s cross-check: real tensor-network mutual information
+    # (mps_exposure.py) against this same run's classical flip-counting
+    # result, for every (vessel_id, year) slot the classical pass already
+    # flagged as exposed or unstable at the unanimous tier. Bounded to those
+    # candidate slots, not the whole fleet -- see compute_mps_crosscheck's
+    # own docstring.
+    print("[5/6] Cross-checking classical exposure against real tensor-network mutual information...")
+    mps_start = time.perf_counter()
+    mps_crosscheck = compute_mps_crosscheck(fleet, prices, exposure_result)
+    mps_elapsed = time.perf_counter() - mps_start
+    print(f"      MPS crosscheck completed in {mps_elapsed:.1f}s across {len(mps_crosscheck)} rows.")
+
     # 4. Serialize dict structures and assemble payload
-    print("[5/5] Assembling final demo_data.json payload...")
+    print("[6/6] Assembling final demo_data.json payload...")
     sweep_dict = sweep_result_to_dict(sweep_result)
     exposure_dict = exposure_result_to_dict(exposure_result)
+    exposure_dict["mps_crosscheck"] = {
+        "description": (
+            "PLAN.md §8.3(b)'s validation, run for real: for every (vessel_id, year) slot the "
+            "classical flip-counting pass above flagged as exposed or unstable at the unanimous tier, "
+            "the real tensor-network mutual information I(r; field) -- computed exactly, from a small "
+            "per-slot Born machine (mps_exposure.py), not estimated by re-seeding and counting flips. "
+            "Sorted by mutual_information_bits, highest first. classical_status is what the flip-counting "
+            "pass above already said about that same (vessel_id, year, decision): 'exposed' (unanimous "
+            "stable tier), 'unstable' (seeds disagreed), or 'not_exposed' (neither -- it appears here "
+            "only because a different field at the same vessel-year slot was flagged)."
+        ),
+        "rows": comparison_rows_to_dicts(mps_crosscheck),
+    }
 
     demo_data = {
         "metadata": {
