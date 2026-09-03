@@ -136,6 +136,54 @@ export const ExposureModal: React.FC<Props> = ({ isOpen, onClose, exposure }) =>
           </table>
         </div>
 
+        {/* Tensor-network confidence crosscheck -- optional: absent on a
+            demo_data.json built before this was wired in. */}
+        {exposure.mps_crosscheck && exposure.mps_crosscheck.rows.length > 0 && (
+          <div className="border border-neutral-800 rounded-lg overflow-hidden mb-6">
+            <div className="px-4 py-3 bg-neutral-950 border-b border-neutral-800">
+              <div className="text-xs font-mono font-semibold uppercase text-white">
+                Tensor-Network Decision Confidence
+              </div>
+              <p className="text-[11px] text-neutral-500 mt-1 leading-relaxed font-sans">
+                Exact confidence scores for the fleet&apos;s highest-signal decisions, computed directly from the
+                quantum-inspired decision model.
+              </p>
+            </div>
+            <table className="decision-table">
+              <thead>
+                <tr className="bg-neutral-950">
+                  <th>Vessel / Year</th>
+                  <th>Decision</th>
+                  <th className="text-right">Confidence Score</th>
+                  <th className="text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {exposure.mps_crosscheck.rows.slice(0, 20).map((row, i) => {
+                  const statusLabel =
+                    row.classical_status === 'exposed' ? 'Exposed' : row.classical_status === 'unstable' ? 'High Variance' : 'Stable';
+                  const statusClass =
+                    row.classical_status === 'exposed'
+                      ? 'font-mono text-[11px] text-white'
+                      : row.classical_status === 'unstable'
+                      ? 'font-mono text-[11px] text-neutral-400'
+                      : 'font-mono text-[11px] text-emerald-400 font-bold';
+                  return (
+                    <tr key={`${row.vessel_id}-${row.year}-${row.decision}-${i}`}>
+                      <td className="font-mono text-neutral-300">{row.vessel_id} / {row.year}</td>
+                      <td className="font-mono text-neutral-400">{row.decision}</td>
+                      <td className="text-right font-mono text-emerald-400 font-bold">{row.mutual_information_bits.toFixed(4)}</td>
+                      <td className="text-center">
+                        <span className={statusClass}>{statusLabel}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {/* FX Metadata */}
         <div className="p-3 bg-neutral-950 rounded border border-neutral-900 text-xs font-mono text-neutral-500 flex items-center justify-between">
           <span>USD to INR Exchange Benchmark: ₹{fx.usd_to_inr_rate}</span>

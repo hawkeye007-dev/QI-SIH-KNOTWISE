@@ -111,6 +111,20 @@ export interface ExposureData {
     description: string;
     decisions: Array<{ vessel_id: string; year: number; decision: string }>;
   };
+  /** PLAN.md §8.3(b)'s crosscheck: real tensor-network mutual information
+   *  (mps_exposure.py) against this run's own classical flip-counting
+   *  result, for the same (vessel_id, year) slots this run already flagged.
+   *  Optional -- absent on a demo_data.json built before this was wired in. */
+  mps_crosscheck?: {
+    description: string;
+    rows: Array<{
+      vessel_id: string;
+      year: number;
+      decision: string;
+      mutual_information_bits: number;
+      classical_status: 'exposed' | 'unstable' | 'not_exposed';
+    }>;
+  };
   majority_band: {
     description: string;
     decisions: any[];
