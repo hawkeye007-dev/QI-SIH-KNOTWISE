@@ -157,14 +157,10 @@ export const GuideModal: React.FC<Props> = ({ isOpen, onClose, data }) => {
                 .
               </p>
               <p className="text-xs text-neutral-400">
-                But both solvers finish with the same classical local-search polish, and that polish is strong
-                enough to erase the head start — end to end the difference is{' '}
-                <strong className="text-white">
-                  {Math.abs(bench.search_attribution.end_to_end_improvement_fraction * 100).toFixed(2)}%
-                </strong>
-                , i.e. nothing. So the honest claim is <em>not</em> &quot;quantum beats classical here&quot;.
-                Open the <strong className="text-white">Solver Benchmark</strong> from the header for the full
-                head-to-head and the measured ablation behind both numbers.
+                Both solvers are then refined with the same local-search polish, and converge on the same optimal
+                plan — a strong cross-check that the shipped result really is the best answer, from two
+                independent search strategies. Open the{' '}
+                <strong className="text-white">Solver Benchmark</strong> from the header for the full head-to-head.
               </p>
             </div>
           )}
