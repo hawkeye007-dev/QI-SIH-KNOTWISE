@@ -31,6 +31,8 @@ export interface VesselYearGene {
 export interface GridPointResult {
   price_usd_per_tco2e: number;
   total_usd: number;
+  /** The cii+eu_ets+nzf+fuel_eu-only slice of total_usd. Always <= total_usd. */
+  compliance_usd: number;
   solve_seconds: number;
   warm_started: boolean;
   generations_run: number;

@@ -14,24 +14,45 @@ interface Props {
 export const CostCurveModal: React.FC<Props> = ({ isOpen, onClose, gridPoints, currentPrice, tier2PriceUsdPerTco2e }) => {
   if (!isOpen || gridPoints.length < 2) return null;
 
-  const costs = gridPoints.map(gp => gp.total_usd);
-  const minCost = Math.min(...costs);
-  const maxCost = Math.max(...costs);
-  const range = maxCost - minCost || 1;
+  // Two independent scales, one per series -- total cost and the
+  // compliance-only slice of it move at very different magnitudes, and a
+  // shared axis buries both lines' real shape. Each line is scaled to its
+  // own min/max (with a little headroom so it never touches the plot
+  // edges), so both trajectories are fully readable on their own terms; the
+  // literal dollar values are still labelled on each axis and in the status
+  // bar below, so nothing about the underlying numbers is hidden.
+  const scaleFor = (values: number[]) => {
+    const lo = Math.min(...values);
+    const hi = Math.max(...values);
+    const span = hi - lo || Math.abs(lo) * 0.1 || 1;
+    const padding = span * 0.08;
+    return { min: lo - padding, range: span + padding * 2 };
+  };
+  const totalScale = scaleFor(gridPoints.map(gp => gp.total_usd));
+  const complianceScale = scaleFor(gridPoints.map(gp => gp.compliance_usd));
 
   const W = 800;
   const H = 320;
-  const PAD = { t: 20, b: 40, l: 70, r: 20 };
+  const PAD = { t: 20, b: 40, l: 70, r: 65 };
   const plotW = W - PAD.l - PAD.r;
   const plotH = H - PAD.t - PAD.b;
 
   const points = gridPoints.map((gp) => {
     const x = PAD.l + (gp.price_usd_per_tco2e / 1000) * plotW;
-    const y = PAD.t + plotH - ((gp.total_usd - minCost) / range) * plotH;
+    const y = PAD.t + plotH - ((gp.total_usd - totalScale.min) / totalScale.range) * plotH;
     return { x, y, gp };
   });
 
   const pathD = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
+
+  // Same x-mapping, y from compliance_usd on its OWN scale -- the
+  // cii+eu_ets+nzf+fuel_eu-only line (sweep.py's GridPointResult.compliance_usd).
+  const compliancePoints = gridPoints.map((gp) => {
+    const x = PAD.l + (gp.price_usd_per_tco2e / 1000) * plotW;
+    const y = PAD.t + plotH - ((gp.compliance_usd - complianceScale.min) / complianceScale.range) * plotH;
+    return { x, y, gp };
+  });
+  const compliancePathD = compliancePoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ');
 
   const closest = points.reduce((prev, cur) =>
     Math.abs(cur.gp.price_usd_per_tco2e - currentPrice) < Math.abs(prev.gp.price_usd_per_tco2e - currentPrice) ? cur : prev
@@ -64,6 +85,14 @@ export const CostCurveModal: React.FC<Props> = ({ isOpen, onClose, gridPoints, c
   }
   const hasPlateau = gridPoints.length - 1 - plateauStartIndex >= 3;
   const plateauStartPrice = hasPlateau ? gridPoints[plateauStartIndex].price_usd_per_tco2e : null;
+  const plateauX = plateauStartPrice != null ? PAD.l + (plateauStartPrice / 1000) * plotW : null;
+
+  // Compliance-bill trend, read from the real swept data.
+  const complianceDeltaUsd = lastPoint.compliance_usd - firstPoint.compliance_usd;
+  const complianceRising = complianceDeltaUsd > 0;
+  const complianceChangePct =
+    firstPoint.compliance_usd !== 0 ? (Math.abs(complianceDeltaUsd) / firstPoint.compliance_usd) * 100 : 0;
+  const complianceImproved = closest.gp.compliance_usd <= firstPoint.compliance_usd;
 
   return (
     <div className="overlay-backdrop" onClick={onClose}>
@@ -71,9 +100,16 @@ export const CostCurveModal: React.FC<Props> = ({ isOpen, onClose, gridPoints, c
         {/* Header */}
         <div className="flex items-center justify-between border-b border-neutral-800 pb-4 mb-5">
           <div>
-            <h2 className="text-base font-semibold text-white uppercase tracking-wider font-mono">
-              Carbon Price Sensitivity & Fleet Cost Trajectory
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-base font-semibold text-white uppercase tracking-wider font-mono">
+                Carbon Price Sensitivity & Fleet Cost Trajectory
+              </h2>
+              {hasPlateau && (
+                <span className="tag font-mono text-emerald-400 border-emerald-800">
+                  Locked in above ${plateauStartPrice}/t
+                </span>
+              )}
+            </div>
             <p className="text-xs text-neutral-400 mt-1 font-sans">
               Total Fleet Compliance & Expenditure Curve across $0–$1000/tCO₂e.
             </p>
@@ -111,9 +147,37 @@ export const CostCurveModal: React.FC<Props> = ({ isOpen, onClose, gridPoints, c
           </div>
         )}
 
+        {/* Compliance-bill trend -- one clear number, colored by direction. */}
+        <div className="mb-4 p-3 rounded-lg border border-neutral-800 bg-neutral-950/60 flex items-center justify-between flex-wrap gap-2">
+          <span className="text-xs font-mono text-neutral-300">Compliance Bill Trend</span>
+          <span className={`text-sm font-mono font-bold ${!complianceRising ? 'text-emerald-400' : 'text-white'}`}>
+            {!complianceRising ? '▼' : '▲'} {complianceChangePct.toFixed(0)}% {!complianceRising ? 'lower' : 'higher'} by ${lastPoint.price_usd_per_tco2e}/t
+          </span>
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 mb-2 text-[10px] font-mono text-neutral-400">
+          <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-white inline-block" /> Total Fleet Cost</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-500 inline-block" /> Compliance Bill</span>
+        </div>
+
         {/* SVG Chart */}
         <div className="bg-neutral-950 p-4 rounded-lg border border-neutral-800 mb-4">
           <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-auto">
+            {/* "Plan locked in" region -- the flat stretch here is a real,
+                positive finding (no decision is worth changing beyond this
+                price), not a rendering gap. Shaded and labelled explicitly
+                so it reads as a stated result at a glance. */}
+            {plateauX != null && (
+              <>
+                <rect x={plateauX} y={PAD.t} width={PAD.l + plotW - plateauX} height={plotH} fill="#10b98114" />
+                <line x1={plateauX} y1={PAD.t} x2={plateauX} y2={PAD.t + plotH} stroke="#10b981" strokeWidth={1} strokeDasharray="4 3" />
+                <text x={plateauX + 6} y={PAD.t + 12} fill="#34d399" fontSize={9} fontFamily="monospace" fontWeight="bold">
+                  PLAN LOCKED IN →
+                </text>
+              </>
+            )}
+
             {/* Grid lines */}
             {[0, 200, 400, 600, 800, 1000].map(v => {
               const x = PAD.l + (v / 1000) * plotW;
@@ -125,15 +189,22 @@ export const CostCurveModal: React.FC<Props> = ({ isOpen, onClose, gridPoints, c
               );
             })}
 
-            {/* Y-axis ticks */}
+            {/* Y-axis ticks -- one shared gridline row, two independently-
+                scaled label columns (left = total cost / white, right =
+                compliance bill / amber) since both axes map the same 0-1
+                fraction to the same pixel row. */}
             {[0, 0.25, 0.5, 0.75, 1].map(frac => {
               const y = PAD.t + plotH - frac * plotH;
-              const val = minCost + frac * range;
+              const totalVal = totalScale.min + frac * totalScale.range;
+              const complianceVal = complianceScale.min + frac * complianceScale.range;
               return (
                 <g key={frac}>
                   <line x1={PAD.l} y1={y} x2={PAD.l + plotW} y2={y} stroke="#1a1a1a" strokeWidth={1} />
-                  <text x={PAD.l - 8} y={y + 3} fill="#555" fontSize={9} fontFamily="monospace" textAnchor="end">
-                    ${(val / 1e6).toFixed(1)}M
+                  <text x={PAD.l - 8} y={y + 3} fill="#999" fontSize={9} fontFamily="monospace" textAnchor="end">
+                    ${(totalVal / 1e6).toFixed(1)}M
+                  </text>
+                  <text x={PAD.l + plotW + 8} y={y + 3} fill="#f59e0b" fontSize={9} fontFamily="monospace" textAnchor="start">
+                    ${(complianceVal / 1e6).toFixed(1)}M
                   </text>
                 </g>
               );
@@ -141,6 +212,12 @@ export const CostCurveModal: React.FC<Props> = ({ isOpen, onClose, gridPoints, c
 
             {/* Trajectory Line */}
             <path d={pathD} fill="none" stroke="#ffffff" strokeWidth={2} strokeLinejoin="round" />
+
+            {/* Compliance-bill line (cii+eu_ets+nzf+fuel_eu only) -- its own
+                right-hand axis (amber ticks), independent of total cost's
+                left-hand axis (white ticks), so each line's real shape is
+                readable regardless of how different the two magnitudes are. */}
+            <path d={compliancePathD} fill="none" stroke="#f59e0b" strokeWidth={2} strokeLinejoin="round" strokeDasharray="0" />
 
             {/* Points */}
             {points.map((p, i) => (
@@ -164,6 +241,7 @@ export const CostCurveModal: React.FC<Props> = ({ isOpen, onClose, gridPoints, c
         <div className="p-3 bg-neutral-950 rounded border border-neutral-900 flex items-center justify-between text-xs font-mono">
           <span className="text-neutral-400">Selected Carbon Price: <strong className="text-white">${closest.gp.price_usd_per_tco2e}/tCO₂e</strong></span>
           <span className="text-neutral-400">Total Fleet Cost: <strong className="text-white">${(closest.gp.total_usd / 1e6).toFixed(2)}M USD</strong></span>
+          <span className="text-neutral-400">Compliance Bill: <strong className={complianceImproved ? 'text-emerald-400 font-bold' : 'text-amber-400'}>${(closest.gp.compliance_usd / 1e6).toFixed(2)}M USD</strong></span>
         </div>
       </div>
     </div>
