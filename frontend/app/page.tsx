@@ -514,6 +514,7 @@ export default function Home() {
         vessels={data.fleet.vessels}
         currentPrice={price}
         cargoDemand={cargoDemand}
+        fuels={data.fleet.fuel_properties.fuels}
       />
 
       <ExposureModal

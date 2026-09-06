@@ -22,7 +22,17 @@ interface Props {
    *  constraint) -- optional so this modal still renders against an older
    *  caller that hasn't computed it yet. */
   cargoDemand?: CargoDemandRow[];
+  /** fleet.fuel_properties.fuels from demo_data.json -- the real GHG
+   *  intensity / LCV figures the optimizer already prices every fuel
+   *  election against. Optional for the same reason as cargoDemand. */
+  fuels?: Record<string, { ghg_intensity_gco2e_per_mj: number; lcv_mj_per_tonne: number; notes?: string }>;
 }
+
+/** Alternative fuels the PS names that this fleet's model does not yet
+ *  price -- listed explicitly rather than silently omitted, so "are
+ *  alternative fuels considered" has an honest answer instead of no
+ *  answer at all. */
+const UNMODELED_FUELS = ['Ammonia', 'Hydrogen'];
 
 const FIELDS = [
   { key: 'fuel_id',          label: 'Fuel Option' },
@@ -73,7 +83,7 @@ const fmt = (field: string, v: any): string => {
 const YEARS = [2026, 2027, 2028, 2029, 2030];
 
 export const MatrixModal: React.FC<Props> = ({
-  isOpen, onClose, currentConfig, baselineConfig, unstableKeys, vessels, currentPrice, cargoDemand
+  isOpen, onClose, currentConfig, baselineConfig, unstableKeys, vessels, currentPrice, cargoDemand, fuels
 }) => {
   const [field, setField] = useState('fuel_id');
 
@@ -249,6 +259,53 @@ export const MatrixModal: React.FC<Props> = ({
                           ⚠ Under-served {row.yearsShort.length}/5 yrs
                         </span>
                       )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Fuel Options & GHG Intensity -- the real fuel_properties every
+            election above is priced against, including the fuels this
+            fleet's economics never happen to elect. */}
+        {fuels && Object.keys(fuels).length > 0 && (
+          <div className="mt-4 border border-neutral-800 rounded-lg overflow-hidden">
+            <div className="px-4 py-2.5 bg-neutral-950 border-b border-neutral-800">
+              <div className="text-xs font-mono font-semibold uppercase text-white">
+                Fuel Options &amp; Lifecycle GHG Intensity
+              </div>
+              <p className="text-[11px] text-neutral-500 mt-0.5 font-sans">
+                Every fuel the optimizer can elect for this fleet, priced on its well-to-wake GHG intensity and
+                energy content. Not every fuel wins a slot in every plan — the matrix above shows which ones do.
+              </p>
+            </div>
+            <table className="decision-table">
+              <thead>
+                <tr>
+                  <th>Fuel</th>
+                  <th className="text-right">GHG Intensity (gCO₂e/MJ)</th>
+                  <th className="text-right">Energy Content (MJ/tonne)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(fuels).map(([fuelId, props]) => (
+                  <tr key={fuelId}>
+                    <td className="font-mono text-neutral-300">{FUEL_NAMES[fuelId] || fuelId}</td>
+                    <td className="text-right font-mono text-neutral-400">
+                      {props.ghg_intensity_gco2e_per_mj.toFixed(1)}
+                    </td>
+                    <td className="text-right font-mono text-neutral-400">
+                      {props.lcv_mj_per_tonne.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+                {UNMODELED_FUELS.map(name => (
+                  <tr key={name}>
+                    <td className="font-mono text-neutral-500">{name}</td>
+                    <td className="text-right font-mono text-neutral-600" colSpan={2}>
+                      Not yet modeled — no cost or engine-compatibility data in this fleet
                     </td>
                   </tr>
                 ))}
