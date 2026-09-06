@@ -101,7 +101,9 @@
     "matrix": {
       "conventional_hfo_scrubber": ["hfo_scrubber", "vlsfo", "mgo", "b30_blend"],
       "dual_fuel_lng": ["vlsfo", "mgo", "lng", "b30_blend"],
-      "dual_fuel_methanol": ["vlsfo", "mgo", "methanol", "b30_blend"]
+      "dual_fuel_methanol": ["vlsfo", "mgo", "methanol", "b30_blend"],
+      "dual_fuel_ammonia": ["vlsfo", "mgo", "ammonia", "b30_blend"],
+      "dual_fuel_hydrogen": ["vlsfo", "mgo", "hydrogen", "b30_blend"]
     }
   },
   "fuel_properties": {
@@ -112,7 +114,9 @@
       "mgo": {"ghg_intensity_gco2e_per_mj": 90.6, "lcv_mj_per_tonne": 42700},
       "lng": {"ghg_intensity_gco2e_per_mj": 76.0, "lcv_mj_per_tonne": 49000},
       "b30_blend": {"ghg_intensity_gco2e_per_mj": 64, "lcv_mj_per_tonne": 39800, "notes": "30% biofuel blended into VLSFO; corrected during Task 2R component 3 review from an earlier, less careful biofuel-component assumption."},
-      "methanol": {"ghg_intensity_gco2e_per_mj": 10, "lcv_mj_per_tonne": 19900, "notes": "Renewable/green-methanol pathway, matching prices.json's own framing of the methanol option as green rather than grey (fossil) methanol. LCV (~half of conventional fuels) is a well-known, high-confidence figure independent of the carbon-intensity pathway assumption."}
+      "methanol": {"ghg_intensity_gco2e_per_mj": 10, "lcv_mj_per_tonne": 19900, "notes": "Renewable/green-methanol pathway, matching prices.json's own framing of the methanol option as green rather than grey (fossil) methanol. LCV (~half of conventional fuels) is a well-known, high-confidence figure independent of the carbon-intensity pathway assumption."},
+      "ammonia": {"ghg_intensity_gco2e_per_mj": 1.28, "lcv_mj_per_tonne": 18600, "notes": "Green/renewable-ammonia pathway (electrolytic H2 + Haber-Bosch on renewable power), matching methanol's own green-not-grey framing. WtW figure from a GREET-2023-based calculation (dan-bunkering.com, 'Calculations for Green House Gas Intensity'); grey (fossil-feedstock) ammonia would instead land near 120-130 gCO2e/MJ, worse than VLSFO. LCV (18.6 MJ/kg) is a standard engineering constant, independent of the carbon-intensity pathway assumption."},
+      "hydrogen": {"ghg_intensity_gco2e_per_mj": 31.5, "lcv_mj_per_tonne": 120000, "notes": "Green/renewable-hydrogen pathway. WtW figure (Maritime Technologies Forum's 2024 fuels-evaluation update) is not an idealized zero -- it includes a real liquefaction-energy penalty, still far below VLSFO's 91.16. LCV (120 MJ/kg) is a standard engineering constant. CAVEAT: fuel_model.py's fuel_consumption_tonnes converts energy to fuel mass via LCV only (energy_mj / lcv) -- a fine simplification for the other fuels here, but for hydrogen specifically it ignores cryogenic/pressurized storage volume, tankage deadweight loss, and boil-off, none of which are modelled anywhere in this prototype. Treat hydrogen's fuel cost as directionally right, not a substitute for a real hydrogen-specific naval-architecture study."}
     }
   },
   "shore_power_model": {
@@ -122,11 +126,11 @@
   },
   "vessels": [
     {"vessel_id": "A1", "band": "A", "engine_type": "conventional_hfo_scrubber", "default_route": "india_northeurope"},
-    {"vessel_id": "A2", "band": "A", "engine_type": "conventional_hfo_scrubber", "default_route": "india_mediterranean"},
+    {"vessel_id": "A2", "band": "A", "engine_type": "dual_fuel_ammonia", "default_route": "india_mediterranean"},
     {"vessel_id": "A3", "band": "A", "engine_type": "dual_fuel_lng", "default_route": "india_northeurope"},
     {"vessel_id": "A4", "band": "A", "engine_type": "dual_fuel_methanol", "default_route": "india_mediterranean"},
     {"vessel_id": "B1", "band": "B", "engine_type": "conventional_hfo_scrubber", "default_route": "india_gulf"},
-    {"vessel_id": "B2", "band": "B", "engine_type": "conventional_hfo_scrubber", "default_route": "india_seasia"},
+    {"vessel_id": "B2", "band": "B", "engine_type": "dual_fuel_hydrogen", "default_route": "india_seasia"},
     {"vessel_id": "B3", "band": "B", "engine_type": "dual_fuel_lng", "default_route": "india_gulf"},
     {"vessel_id": "C1", "band": "C", "engine_type": "conventional_hfo_scrubber", "default_route": "coastal_westcoast"},
     {"vessel_id": "C2", "band": "C", "engine_type": "conventional_hfo_scrubber", "default_route": "coastal_eastcoast"},
