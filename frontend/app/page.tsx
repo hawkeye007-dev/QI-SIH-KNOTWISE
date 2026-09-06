@@ -379,12 +379,14 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
-                    Money Saved
+                    Search-Quality Value
                   </div>
                   <div className="text-2xl font-mono font-bold text-emerald-400">
                     ₹{(optimizerMoneySavedInr / 1e7).toFixed(0)} Cr
                   </div>
-                  <div className="text-[10px] font-mono text-neutral-500">vs. a naive search</div>
+                  <div className="text-[10px] font-mono text-neutral-500">
+                    ablation only, pre-polish — not the fleet&apos;s deployed savings
+                  </div>
                 </div>
                 <div>
                   <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
