@@ -46,6 +46,22 @@
       "status": "ESTIMATE",
       "source": "Green e-methanol estimate from secondary reporting, no single spot-market quote the way the other five fuels have one — https://www.hellenicshippingnews.com/switch-to-green-e-methanol-would-raise-bunker-costs-by-340/",
       "notes": "Grey (fossil) methanol trades far cheaper (~$669/mt fuel-oil-equivalent at Rotterdam, per the same source family) but does not satisfy FuelEU/NZF's lifecycle-carbon-intensity intent; the green figure is used here as the fuel option a compliance-motivated dual-fuel-methanol vessel would actually burn."
+    },
+    "ammonia": {
+      "price_usd_per_tonne": 850,
+      "port": null,
+      "retrieval_date": "2026-09-06",
+      "status": "ESTIMATE",
+      "source": "Green ammonia spot-price average across five markets, Q1 2026 ($807-875/mt) — https://www.imarcgroup.com/green-ammonia-price-trend and https://www.expertmarketresearch.com/price-forecast/green-ammonia-price-trends",
+      "notes": "No single dedicated bunker-market quote exists yet, same situation as methanol; this is the green-ammonia commodity spot price, the fuel option a compliance-motivated dual-fuel-ammonia vessel would actually burn (see fuel_properties.fuels.ammonia's green-vs-grey note)."
+    },
+    "hydrogen": {
+      "price_usd_per_tonne": 6000,
+      "port": null,
+      "retrieval_date": "2026-09-06",
+      "status": "ESTIMATE",
+      "source": "Liquid-hydrogen maritime bunker cost, $5-8/kg range, 2026 industry reporting on early hydrogen-bunkering infrastructure (Rotterdam/Singapore/LA/Tokyo build-out)",
+      "notes": "No bunker spot market exists yet; this is a rough midpoint of a wide, early-market range and should be re-verified before this feeds anything beyond the prototype. At this price and hydrogen's LCV, the energy-adjusted cost (~$50/GJ) is comparable to green methanol's (~$60/GJ) despite the much higher price-per-tonne, since hydrogen carries roughly 6x the energy per tonne."
     }
   },
   "carbon_allowances": {
