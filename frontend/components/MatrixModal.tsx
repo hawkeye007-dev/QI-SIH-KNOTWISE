@@ -28,12 +28,6 @@ interface Props {
   fuels?: Record<string, { ghg_intensity_gco2e_per_mj: number; lcv_mj_per_tonne: number; notes?: string }>;
 }
 
-/** Alternative fuels the PS names that this fleet's model does not yet
- *  price -- listed explicitly rather than silently omitted, so "are
- *  alternative fuels considered" has an honest answer instead of no
- *  answer at all. */
-const UNMODELED_FUELS = ['Ammonia', 'Hydrogen'];
-
 const FIELDS = [
   { key: 'fuel_id',          label: 'Fuel Option' },
   { key: 'speed_band_index', label: 'Speed Profile' },
@@ -50,6 +44,8 @@ const FUEL_NAMES: Record<string, string> = {
   lng: 'LNG Dual-Fuel',
   b30_blend: 'B30 Biofuel',
   methanol: 'e-Methanol',
+  ammonia: 'Green Ammonia',
+  hydrogen: 'Green Hydrogen',
 };
 
 const ROUTE_NAMES: Record<string, string> = {
@@ -298,14 +294,6 @@ export const MatrixModal: React.FC<Props> = ({
                     </td>
                     <td className="text-right font-mono text-neutral-400">
                       {props.lcv_mj_per_tonne.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-                {UNMODELED_FUELS.map(name => (
-                  <tr key={name}>
-                    <td className="font-mono text-neutral-500">{name}</td>
-                    <td className="text-right font-mono text-neutral-600" colSpan={2}>
-                      Not yet modeled — no cost or engine-compatibility data in this fleet
                     </td>
                   </tr>
                 ))}
