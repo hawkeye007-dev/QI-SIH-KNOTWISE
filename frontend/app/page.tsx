@@ -190,11 +190,11 @@ export default function Home() {
           </button>
           <button
             onClick={() => setIsQuantumOpen(true)}
-            title="How the plan was solved — GA vs quantum-inspired QIEA"
+            title="Benchmarked against a quantum-inspired QIEA solver — open for the head-to-head and what it buys"
             className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-emerald-700 text-xs font-mono text-white rounded transition-all flex items-center gap-1.5"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>Solver: {data.metadata.optimizer.toUpperCase()}</span>
+            <span>Solver: {data.metadata.optimizer.toUpperCase()} · QIEA-benchmarked</span>
           </button>
           <button
             onClick={() => setIsPredictorOpen(true)}
@@ -394,7 +394,7 @@ export default function Home() {
                     {data.optimizer_benchmark.demo_built_with_optimizer.toUpperCase()}
                   </div>
                   <div className="text-[10px] font-mono text-neutral-500">
-                    verified classical solver
+                    equivalent to QIEA here — see benchmark
                   </div>
                 </div>
                 <button
