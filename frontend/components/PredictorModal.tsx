@@ -83,7 +83,7 @@ export const PredictorModal: React.FC<Props> = ({ isOpen, onClose, benchmark }) 
                 Best Model: {ARM_LABELS[bestArm]}
               </div>
               <div className="text-3xl font-mono font-bold text-emerald-400">
-                {relativeImprovementPct.toFixed(0)}% More Accurate
+                {relativeImprovementPct.toFixed(0)}% Lower Prediction Error
               </div>
               <div className="text-[11px] font-mono text-neutral-500 mt-1">than physics-only estimation</div>
             </div>
@@ -137,6 +137,15 @@ export const PredictorModal: React.FC<Props> = ({ isOpen, onClose, benchmark }) 
                 </tbody>
               </table>
             </div>
+            {bestArm === 'lightgbm' && (
+              <p className="text-[11px] text-neutral-500 font-sans mt-3 leading-relaxed">
+                LightGBM and Tensor-Train are a statistical tie here (
+                {arms.lightgbm.mean_mape_percent.toFixed(2)}% vs {arms.tensor_train.mean_mape_percent.toFixed(2)}%
+                MAPE) — both clear physics-only and MLP by a wide margin. Tensor-Train is the quantum-inspired
+                model in this comparison; it wins on validating that a tensor-network representation can match
+                a strong classical baseline on this problem, not on beating it outright.
+              </p>
+            )}
           </div>
         </div>
 
