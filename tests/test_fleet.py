@@ -168,8 +168,10 @@ class TestPhysicalAndEconomicData:
             assert route["distance_nm"] > 0, route_id
             assert route["min_capacity_dwt_required"] > 0, route_id
 
-    def test_fuel_properties_cover_all_six_canonical_fuels(self, fleet):
-        expected = {"hfo_scrubber", "vlsfo", "mgo", "lng", "b30_blend", "methanol"}
+    def test_fuel_properties_cover_all_eight_canonical_fuels(self, fleet):
+        expected = {
+            "hfo_scrubber", "vlsfo", "mgo", "lng", "b30_blend", "methanol", "ammonia", "hydrogen",
+        }
         assert set(fleet["fuel_properties"]["fuels"].keys()) == expected
         for fuel_id, props in fleet["fuel_properties"]["fuels"].items():
             assert props["ghg_intensity_gco2e_per_mj"] > 0, fuel_id
