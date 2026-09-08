@@ -22,6 +22,7 @@ const FIELDS = [
 const FUEL: Record<string, string> = {
   hfo_scrubber: 'HFO+Scrub', vlsfo: 'VLSFO', mgo: 'MGO',
   lng: 'LNG', b30_blend: 'B30', methanol: 'Methanol',
+  ammonia: 'NH3', hydrogen: 'H2',
 };
 
 const ROUTE_SHORT: Record<string, string> = {

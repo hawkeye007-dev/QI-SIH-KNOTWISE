@@ -84,6 +84,39 @@ export default function Home() {
   const currentConfig: VesselYearGene[] = closest?.configuration ?? [];
   const baselineConfig: VesselYearGene[] = gridPoints.length > 0 ? gridPoints[0].configuration : [];
 
+  // Cargo demand satisfaction (PS hard constraint) -- not a separate
+  // backend computation, just the same demand_shortfall_penalty inputs
+  // (routes[route].min_capacity_dwt_required, vessel_class_defaults[band]
+  // .dwt_tonnes) the objective already enforces, cross-referenced against
+  // the current plan's own route_id assignments per vessel-year.
+  const cargoDemand = useMemo(() => {
+    if (!data) return [];
+    const bandByVessel = new Map(data.fleet.vessels.map(v => [v.vessel_id, v.band]));
+    const dwtByBand: Record<string, number> = {};
+    Object.entries(data.fleet.vessel_class_defaults).forEach(([band, def]: [string, any]) => {
+      dwtByBand[band] = def.dwt_tonnes;
+    });
+    return Object.entries(data.fleet.routes).map(([routeId, route]: [string, any]) => {
+      const requiredDwt = route.min_capacity_dwt_required;
+      const years = [2026, 2027, 2028, 2029, 2030];
+      let minAssignedDwt = Infinity;
+      const yearsShort: number[] = [];
+      years.forEach(year => {
+        const assignedDwt = currentConfig
+          .filter(g => g.route_id === routeId && g.year === year)
+          .reduce((sum, g) => sum + (dwtByBand[bandByVessel.get(g.vessel_id) ?? ''] ?? 0), 0);
+        minAssignedDwt = Math.min(minAssignedDwt, assignedDwt);
+        if (assignedDwt < requiredDwt) yearsShort.push(year);
+      });
+      return {
+        routeId,
+        requiredDwt,
+        minAssignedDwt: minAssignedDwt === Infinity ? 0 : minAssignedDwt,
+        yearsShort,
+      };
+    });
+  }, [data, currentConfig]);
+
   // Active flips count at current price
   const activeFlips = useMemo(() => {
     if (!data) return [];
@@ -190,11 +223,11 @@ export default function Home() {
           </button>
           <button
             onClick={() => setIsQuantumOpen(true)}
-            title="How the plan was solved — GA vs quantum-inspired QIEA"
+            title="Benchmarked against a quantum-inspired QIEA solver — open for the head-to-head and what it buys"
             className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-emerald-700 text-xs font-mono text-white rounded transition-all flex items-center gap-1.5"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>Solver: {data.metadata.optimizer.toUpperCase()}</span>
+            <span>Solver: {data.metadata.optimizer.toUpperCase()} · QIEA-benchmarked</span>
           </button>
           <button
             onClick={() => setIsPredictorOpen(true)}
@@ -379,12 +412,14 @@ export default function Home() {
                 </div>
                 <div>
                   <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
-                    Money Saved
+                    Search-Quality Value
                   </div>
                   <div className="text-2xl font-mono font-bold text-emerald-400">
                     ₹{(optimizerMoneySavedInr / 1e7).toFixed(0)} Cr
                   </div>
-                  <div className="text-[10px] font-mono text-neutral-500">vs. a naive search</div>
+                  <div className="text-[10px] font-mono text-neutral-500">
+                    ablation only, pre-polish — not the fleet&apos;s deployed savings
+                  </div>
                 </div>
                 <div>
                   <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
@@ -394,7 +429,7 @@ export default function Home() {
                     {data.optimizer_benchmark.demo_built_with_optimizer.toUpperCase()}
                   </div>
                   <div className="text-[10px] font-mono text-neutral-500">
-                    verified classical solver
+                    equivalent to QIEA here — see benchmark
                   </div>
                 </div>
                 <button
@@ -478,6 +513,8 @@ export default function Home() {
         unstableKeys={unstableKeys}
         vessels={data.fleet.vessels}
         currentPrice={price}
+        cargoDemand={cargoDemand}
+        fuels={data.fleet.fuel_properties.fuels}
       />
 
       <ExposureModal

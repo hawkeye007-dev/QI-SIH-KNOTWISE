@@ -146,8 +146,14 @@ export const ExposureModal: React.FC<Props> = ({ isOpen, onClose, exposure }) =>
                 Tensor-Network Decision Confidence
               </div>
               <p className="text-[11px] text-neutral-500 mt-1 leading-relaxed font-sans">
-                Exact confidence scores for the fleet&apos;s highest-signal decisions, computed directly from the
-                quantum-inspired decision model.
+                Mutual information (bits) for the fleet&apos;s highest-signal decisions, computed directly from the
+                quantum-inspired tensor-network model. This is an unbounded information measure, not a 0-1
+                confidence score — read it as a ranking within this table, not against a fixed scale.
+                <span className="block mt-1">
+                  Status is computed independently, by classical seed voting across scenario re-solves (the same
+                  method behind the tiers table above) — it is not derived from the score beside it, so the two
+                  columns can and do disagree on ordering.
+                </span>
               </p>
             </div>
             <table className="decision-table">
@@ -155,8 +161,8 @@ export const ExposureModal: React.FC<Props> = ({ isOpen, onClose, exposure }) =>
                 <tr className="bg-neutral-950">
                   <th>Vessel / Year</th>
                   <th>Decision</th>
-                  <th className="text-right">Confidence Score</th>
-                  <th className="text-center">Status</th>
+                  <th className="text-right">Tensor MI (bits)</th>
+                  <th className="text-center">Classical Status</th>
                 </tr>
               </thead>
               <tbody>

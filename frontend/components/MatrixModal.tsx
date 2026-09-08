@@ -3,6 +3,13 @@
 import React, { useState } from 'react';
 import { VesselYearGene, FleetVessel } from '@/types/demo';
 
+interface CargoDemandRow {
+  routeId: string;
+  requiredDwt: number;
+  minAssignedDwt: number;
+  yearsShort: number[];
+}
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
@@ -11,6 +18,14 @@ interface Props {
   unstableKeys: Set<string>;
   vessels: FleetVessel[];
   currentPrice: number;
+  /** Per-route cargo demand coverage at the current price (PS hard
+   *  constraint) -- optional so this modal still renders against an older
+   *  caller that hasn't computed it yet. */
+  cargoDemand?: CargoDemandRow[];
+  /** fleet.fuel_properties.fuels from demo_data.json -- the real GHG
+   *  intensity / LCV figures the optimizer already prices every fuel
+   *  election against. Optional for the same reason as cargoDemand. */
+  fuels?: Record<string, { ghg_intensity_gco2e_per_mj: number; lcv_mj_per_tonne: number; notes?: string }>;
 }
 
 const FIELDS = [
@@ -29,6 +44,8 @@ const FUEL_NAMES: Record<string, string> = {
   lng: 'LNG Dual-Fuel',
   b30_blend: 'B30 Biofuel',
   methanol: 'e-Methanol',
+  ammonia: 'Green Ammonia',
+  hydrogen: 'Green Hydrogen',
 };
 
 const ROUTE_NAMES: Record<string, string> = {
@@ -62,7 +79,7 @@ const fmt = (field: string, v: any): string => {
 const YEARS = [2026, 2027, 2028, 2029, 2030];
 
 export const MatrixModal: React.FC<Props> = ({
-  isOpen, onClose, currentConfig, baselineConfig, unstableKeys, vessels, currentPrice
+  isOpen, onClose, currentConfig, baselineConfig, unstableKeys, vessels, currentPrice, cargoDemand, fuels
 }) => {
   const [field, setField] = useState('fuel_id');
 
@@ -200,6 +217,90 @@ export const MatrixModal: React.FC<Props> = ({
             </tbody>
           </table>
         </div>
+
+        {/* Cargo Demand Coverage -- the PS's "cargo demand satisfaction" hard
+            constraint, read off the same route_id assignments and
+            min_capacity_dwt_required figures the objective's
+            demand_shortfall_penalty already enforces during optimization,
+            not a separate re-derivation. */}
+        {cargoDemand && cargoDemand.length > 0 && (
+          <div className="mt-4 border border-neutral-800 rounded-lg overflow-hidden">
+            <div className="px-4 py-2.5 bg-neutral-950 border-b border-neutral-800">
+              <div className="text-xs font-mono font-semibold uppercase text-white">Cargo Demand Coverage</div>
+              <p className="text-[11px] text-neutral-500 mt-0.5 font-sans">
+                Assigned deadweight vs. each route&apos;s minimum capacity requirement, every year 2026–2030, at
+                the current plan.
+              </p>
+            </div>
+            <table className="decision-table">
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th className="text-right">Required (DWT)</th>
+                  <th className="text-right">Worst-Year Assigned (DWT)</th>
+                  <th className="text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cargoDemand.map(row => (
+                  <tr key={row.routeId}>
+                    <td className="font-mono text-neutral-300">{ROUTE_NAMES[row.routeId] || row.routeId}</td>
+                    <td className="text-right font-mono text-neutral-400">{row.requiredDwt.toLocaleString()}</td>
+                    <td className="text-right font-mono text-neutral-400">{row.minAssignedDwt.toLocaleString()}</td>
+                    <td className="text-center">
+                      {row.yearsShort.length === 0 ? (
+                        <span className="font-mono text-[11px] text-emerald-400 font-bold">✓ Fully Served</span>
+                      ) : (
+                        <span className="font-mono text-[11px] text-white">
+                          ⚠ Under-served {row.yearsShort.length}/5 yrs
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Fuel Options & GHG Intensity -- the real fuel_properties every
+            election above is priced against, including the fuels this
+            fleet's economics never happen to elect. */}
+        {fuels && Object.keys(fuels).length > 0 && (
+          <div className="mt-4 border border-neutral-800 rounded-lg overflow-hidden">
+            <div className="px-4 py-2.5 bg-neutral-950 border-b border-neutral-800">
+              <div className="text-xs font-mono font-semibold uppercase text-white">
+                Fuel Options &amp; Lifecycle GHG Intensity
+              </div>
+              <p className="text-[11px] text-neutral-500 mt-0.5 font-sans">
+                Every fuel the optimizer can elect for this fleet, priced on its well-to-wake GHG intensity and
+                energy content. Not every fuel wins a slot in every plan — the matrix above shows which ones do.
+              </p>
+            </div>
+            <table className="decision-table">
+              <thead>
+                <tr>
+                  <th>Fuel</th>
+                  <th className="text-right">GHG Intensity (gCO₂e/MJ)</th>
+                  <th className="text-right">Energy Content (MJ/tonne)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {Object.entries(fuels).map(([fuelId, props]) => (
+                  <tr key={fuelId}>
+                    <td className="font-mono text-neutral-300">{FUEL_NAMES[fuelId] || fuelId}</td>
+                    <td className="text-right font-mono text-neutral-400">
+                      {props.ghg_intensity_gco2e_per_mj.toFixed(1)}
+                    </td>
+                    <td className="text-right font-mono text-neutral-400">
+                      {props.lcv_mj_per_tonne.toLocaleString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Footer Info */}
         <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-neutral-400 font-mono">
