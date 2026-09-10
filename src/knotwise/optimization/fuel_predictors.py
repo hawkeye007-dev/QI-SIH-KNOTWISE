@@ -44,6 +44,12 @@ from knotwise.optimization.synthetic_telemetry import TelemetrySample
 
 _PHYSICS = PhysicsFuelModel()
 
+# The deployment choice is deliberately narrow. The accompanying benchmark
+# picks the lowest leave-one-vessel-out MAPE from the implemented models;
+# keeping that validated winner here avoids a configuration surface whose
+# only effect would be to make a prototype demo claim harder to audit.
+VALIDATED_DEPLOYMENT_PREDICTOR_ID = "lightgbm"
+
 
 def residual_fraction(sample: TelemetrySample) -> float:
     """The training target every residual predictor fits: how far
@@ -125,6 +131,7 @@ class LightGbmResidualFuelModel:
     def __init__(self, encoder: FeatureEncoder) -> None:
         self._encoder = encoder
         self._model: LGBMRegressor | None = None
+        self._prediction_cache: dict[tuple[str, str, str, float, int], float] = {}
 
     def fit(self, train_samples: list[TelemetrySample], fleet: dict[str, Any]) -> None:
         del fleet  # unused; see class docstring
@@ -135,6 +142,7 @@ class LightGbmResidualFuelModel:
         )
         model.fit(features, targets)
         self._model = model
+        self._prediction_cache.clear()
 
     def annual_energy_mj(self, vessel: dict[str, Any], fleet: dict[str, Any], speed_knots: float, route_id: str) -> float:
         return _PHYSICS.annual_energy_mj(vessel, fleet, speed_knots, route_id)
@@ -148,16 +156,46 @@ class LightGbmResidualFuelModel:
         if self._model is None:
             raise RuntimeError("LightGbmResidualFuelModel.fit() must be called before prediction")
         physics_tonnes = _PHYSICS.fuel_consumption_tonnes(vessel, fleet, year, speed_knots, fuel_id, route_id)
-        features = self._encoder.encode_one(vessel["band"], route_id, fuel_id, speed_knots, year).reshape(1, -1)
-        predicted_residual = float(self._model.predict(features)[0])
+        # The optimizer repeatedly revisits the same finite decision-domain
+        # tuples. Cache the model's residual (not tonnes, which are
+        # vessel-specific) so fitted inference remains practical across a
+        # full QIEA sweep without changing any estimate.
+        key = (vessel["band"], route_id, fuel_id, speed_knots, year)
+        predicted_residual = self._prediction_cache.get(key)
+        if predicted_residual is None:
+            features = self._encoder.encode_one(*key).reshape(1, -1)
+            predicted_residual = float(self._model.predict(features)[0])
+            self._prediction_cache[key] = predicted_residual
         return physics_tonnes * (1.0 + predicted_residual)
+
+
+def fit_validated_deployment_predictor(
+    fleet: dict[str, Any], *, samples_per_vessel_year: int = 80, telemetry_seed: int = 0
+) -> LightGbmResidualFuelModel:
+    """Fit the validated prototype predictor used by fleet-plan generation.
+
+    Training uses the full synthetic telemetry table only *after* the
+    benchmark has validated this model with leave-one-vessel-out folds. This
+    mirrors ordinary deployment practice: holdout folds select a model, then
+    the selected model is refit on all available training data. The returned
+    object conforms to ``FuelModel``, so it changes the fuel tonnes and fuel
+    cost that both solvers optimize while physics remains the energy authority
+    for regulatory calculations.
+    """
+    from knotwise.optimization.synthetic_telemetry import generate_telemetry
+
+    telemetry = generate_telemetry(
+        fleet, samples_per_vessel_year=samples_per_vessel_year, seed=telemetry_seed
+    )
+    model = LightGbmResidualFuelModel(FeatureEncoder(fleet))
+    model.fit(telemetry, fleet)
+    return model
 
 
 class MlpResidualFuelModel:
     """A small multi-layer perceptron over `FeatureEncoder`'s feature space,
     predicting `residual_fraction`. Numeric features are standardized
-    (`StandardScaler`, fit on the training fold only — the one-hot block is
-    left as-is, scaling a 0/1 indicator has no effect) — unlike gradient-
+    (`StandardScaler`, fit on the training fold only) — unlike gradient-
     boosted trees, a gradient-based model needs this to converge reliably.
     `fleet` is accepted by `fit` for the same uniform-signature reason as
     `LightGbmResidualFuelModel`."""
@@ -174,13 +212,15 @@ class MlpResidualFuelModel:
         scaler = StandardScaler()
         scaled = scaler.fit_transform(features)
         model = MLPRegressor(
-            hidden_layer_sizes=(32, 16),
+            # A compact network generalizes across the held-out vessel bands
+            # in this small synthetic table. The earlier wider network's
+            # validation split was unstable between scikit-learn releases.
+            hidden_layer_sizes=(16, 8),
             activation="relu",
-            alpha=1e-3,
+            alpha=1e-2,
             max_iter=2000,
             random_state=0,
-            early_stopping=True,
-            n_iter_no_change=20,
+            early_stopping=False,
         )
         model.fit(scaled, targets)
         self._scaler = scaler

@@ -1,0 +1,22 @@
+.intro { display:grid; grid-template-columns:1.1fr 1fr; gap:48px; align-items:end; margin-bottom:28px; }
+.intro h2 { font-size:28px; font-weight:500; line-height:1.2; letter-spacing:-.035em; margin-top:10px; }
+.intro p { font-size:13px; line-height:1.75; color:var(--text-secondary); }
+.grid { display:grid; list-style:none; padding:0; margin:0; border-top:1px solid var(--border-strong); border-bottom:1px solid var(--border-strong); }
+.stage { min-width:0; border-left:1px solid var(--border); padding:24px 18px; }
+.stage:first-child { border-left:0; padding-left:0; }
+.stage:last-child { padding-right:0; }
+.price { min-height:100px; }
+.price > span { color:var(--text-secondary); font-size:10px; text-transform:uppercase; letter-spacing:.07em; }
+.price h3 { margin-top:9px; font-size:23px; letter-spacing:-.045em; font-weight:500; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.price small { font-size:11px; color:var(--text-secondary); }
+.fuels { display:grid; gap:24px; }
+.fuel dt { font-size:11px; color:var(--text-secondary); margin-bottom:6px; }
+.fuel dd { display:flex; flex-wrap:wrap; align-items:baseline; gap:8px; }
+.fuel strong { font-size:21px; font-weight:500; font-variant-numeric:tabular-nums; }
+.fuel dd > span { font-size:9px; color:var(--text-secondary); }
+.track { height:5px; margin-top:8px; background:var(--surface-hover); }
+.track > span { display:block; height:100%; }
+.caption { margin-top:24px; min-height:48px; color:var(--text-secondary); font-size:11px; line-height:1.6; }
+.note { color:var(--text-secondary); font-size:11px; line-height:1.7; margin-top:16px; max-width:85ch; }
+@media(max-width:900px) and (min-width:768px) { .stage { padding:20px 10px; } .price h3 { font-size:19px; } }
+@media(max-width:767px) { .intro { grid-template-columns:1fr; gap:14px; } .grid { grid-template-columns:1fr!important; } .stage,.stage:first-child,.stage:last-child { padding:24px 0; border-left:0; border-bottom:1px solid var(--border); } .stage:last-child { border-bottom:0; } .price { min-height:0; margin-bottom:20px; } .fuels { grid-template-columns:1fr 1fr; gap:20px; } .caption { min-height:0; } }

@@ -37,6 +37,61 @@ export interface GridPointResult {
   warm_started: boolean;
   generations_run: number;
   configuration: VesselYearGene[];
+  metrics?: AuthoritativePlanMetrics;
+}
+
+/** Metrics calculated and serialized by the optimizer, never recomputed in the UI. */
+export interface AuthoritativePlanMetrics {
+  total_usd: number;
+  compliance_usd: number;
+  fuel_tonnes: number;
+  lifecycle_emissions_tco2e: number;
+  annual_service: {
+    passed: boolean;
+    rows: Array<{ vessel_id: string; year: number; route_id: string; status: string }>;
+  };
+  cargo: {
+    passed: boolean;
+    rows: Array<{
+      route_id: string;
+      year: number;
+      required_tonne_nm: number;
+      assigned_tonne_nm: number;
+      status: string;
+    }>;
+  };
+}
+
+export interface ComparableAlternative {
+  id: 'cheapest' | 'balanced' | 'greenest';
+  definition: string;
+  configuration: VesselYearGene[];
+  metrics: AuthoritativePlanMetrics;
+  emissions_cap_tco2e: number | null;
+  change_summary: {
+    changed_vessel_years: number;
+    changed_fields: Record<string, number>;
+    examples: Array<{ vessel_id: string; year: number; changes: Record<string, { from: unknown; to: unknown }> }>;
+  };
+}
+
+export interface ComparableRecommendations {
+  status: 'SYNTHETIC_COMPARABLE_ALTERNATIVES';
+  optimizer: 'ga' | 'qiea';
+  balanced_definition: string;
+  balanced_emissions_gap_fraction: number;
+  alternatives: ComparableAlternative[];
+  scenario: {
+    scenario_id: string;
+    effective_carbon_price_usd_per_tco2e: number;
+    cargo_demand_multiplier?: number;
+    note: string;
+  };
+  provenance?: {
+    optimizer: string;
+    fuel_model: string;
+    fuel_model_fallback_reason: string | null;
+  };
 }
 
 export interface SwitchingPoint {
@@ -161,6 +216,10 @@ export interface DemoData {
     provenance: string;
     /** Which solver produced every plan in this file: 'ga' or 'qiea'. */
     optimizer: string;
+    /** Fuel estimator used to score the plans, e.g. validated 'lightgbm'. */
+    fuel_model?: string;
+    fuel_model_status?: 'SYNTHETIC_VALIDATED' | 'PHYSICS_FALLBACK';
+    fuel_model_fallback_reason?: string | null;
   };
   routes_geo: RoutesGeo;
   fleet: {
@@ -171,6 +230,7 @@ export interface DemoData {
   };
   prices: any;
   sweep: SweepData;
+  comparable_recommendations?: ComparableRecommendations;
   exposure: ExposureData;
   optimizer_benchmark: OptimizerBenchmark;
   fuel_predictor_benchmark: FuelPredictorBenchmark;
@@ -254,6 +314,62 @@ export interface SearchAttribution {
   raw_search_improvement_fraction: number;
   end_to_end_improvement_fraction: number;
   settings: Record<string, any>;
+}
+
+export interface Phase6Benchmark {
+  generated_at: string;
+  status: string;
+  protocol: {
+    shared_informed_initialization: string;
+    qiea_mean_field_initialization: boolean;
+    final_local_refinement: boolean;
+    scenarios: string[];
+    seeds: number[];
+  };
+  summary: {
+    paired_runs: number;
+    qiea_wins: number;
+    ga_wins: number;
+    ties: number;
+    median_qiea_minus_ga_usd: number;
+    all_runs_feasible: boolean;
+  };
+  exact_reference: { decision_slots: number; exhaustive_optimum_usd: number; ga_gap_usd: number; qiea_gap_usd: number };
+  scaling: Array<{ decision_slots: number; ga: { seconds: number; feasible: boolean }; qiea: { seconds: number; feasible: boolean } }>;
+  claim: string;
+}
+
+export interface ScalingBenchmark {
+  status: string;
+  protocol: {
+    scenario?: string;
+    population_size: number;
+    generations: number;
+    seeds: number[];
+    polish_max_sweeps: number;
+    qiea_mean_field_initialization: boolean;
+    initialization?: 'method' | 'shared_informed';
+  };
+  records: Array<{
+    vessel_count: number;
+    seed: number;
+    solver: 'ga' | 'qiea';
+    total_usd: number;
+    seconds: number;
+    feasible: boolean;
+    decision_slots: number;
+  }>;
+  summary: Array<{
+    vessel_count: number;
+    decision_slots: number;
+    solver: 'ga' | 'qiea';
+    runs: number;
+    median_seconds: number;
+    best_total_usd: number;
+    gap_to_best_observed_fraction: number;
+    all_runs_feasible: boolean;
+  }>;
+  claim: string;
 }
 
 /** `build_demo_data.py` deliberately gives "benchmark was never run" a defined

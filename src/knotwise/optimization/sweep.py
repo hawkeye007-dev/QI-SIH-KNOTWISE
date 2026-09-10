@@ -73,6 +73,7 @@ def _run_solver(
     population_size: int,
     n_generations: int,
     tournament_size: int,
+    fuel_model: FuelModel | None = None,
     seed_genome: Genome | None = None,
     reference_genome: Genome | None = None,
 ) -> solver.SolverResult:
@@ -98,6 +99,7 @@ def _run_solver(
             population_size=population_size,
             n_generations=n_generations,
             tournament_size=tournament_size,
+            fuel_model=fuel_model,
             seed_genome=seed_genome,
             reference_genome=reference_genome,
         )
@@ -109,6 +111,7 @@ def _run_solver(
             seed=seed,
             population_size=population_size,
             n_generations=n_generations,
+            fuel_model=fuel_model,
             seed_genome=seed_genome,
             reference_genome=reference_genome,
         )
@@ -126,6 +129,7 @@ def solve_scenario(
     tournament_size: int = 3,
     seed_genome: Genome | None = None,
     reference_genome: Genome | None = None,
+    fuel_model: FuelModel | None = None,
     optimizer: str = "ga",
 ) -> solver.SolverResult:
     """Resolve `scenario_id`'s regulations and run the solver under them —
@@ -149,6 +153,7 @@ def solve_scenario(
         population_size=population_size,
         n_generations=n_generations,
         tournament_size=tournament_size,
+        fuel_model=fuel_model,
         seed_genome=seed_genome,
         reference_genome=reference_genome,
     )
@@ -194,6 +199,11 @@ def _nzf_price_override(base_regulations: dict[str, Any], price: float) -> dict[
     real_tier_2_price = base_regulations["regimes"]["nzf"]["tier_prices_usd_per_tco2e"]["tier_2"]
     nzf["surplus_unit_value_usd_per_tco2e"] = min(price, real_tier_2_price)
     return resolved
+
+
+def regulations_for_carbon_price(base_regulations: dict[str, Any], price_usd_per_tco2e: float) -> dict[str, Any]:
+    """The exact regulation view used to score one precomputed sweep point."""
+    return _nzf_price_override(base_regulations, price_usd_per_tco2e)
 
 
 @dataclass(frozen=True)
@@ -479,7 +489,13 @@ def scenario_axis_positions(
     fuel_model = fuel_model or PhysicsFuelModel()
     if representative_genome is None:
         representative_genome = solve_scenario(
-            fleet, prices, "approved_text", seed=representative_seed, population_size=30, n_generations=15
+            fleet,
+            prices,
+            "approved_text",
+            seed=representative_seed,
+            population_size=30,
+            n_generations=15,
+            fuel_model=fuel_model,
         ).best_genome
 
     positions: list[ScenarioAxisPosition] = []
@@ -712,6 +728,7 @@ def _reattempt_corrected_points(
     population_size: int,
     n_generations: int,
     tournament_size: int,
+    fuel_model: FuelModel,
     optimizer: str = "ga",
 ) -> list[GridPointResult]:
     """Review defect 2: a point the envelope correction replaced with a
@@ -758,6 +775,7 @@ def _reattempt_corrected_points(
             population_size=population_size,
             n_generations=n_generations,
             tournament_size=tournament_size,
+            fuel_model=fuel_model,
             reference_genome=point.genome,
         )
         if result.best_total_usd < point.total_usd:
@@ -855,6 +873,7 @@ def run_sweep(
                 population_size=population_size,
                 n_generations=cold_generations,
                 tournament_size=tournament_size,
+                fuel_model=fuel_model,
             )
             elapsed = time.perf_counter() - start
             grid_points.append(
@@ -879,6 +898,7 @@ def run_sweep(
                 population_size=population_size,
                 n_generations=warm_generations,
                 tournament_size=tournament_size,
+                fuel_model=fuel_model,
                 seed_genome=previous_genome,
             )
             warm_elapsed = time.perf_counter() - start
@@ -908,6 +928,7 @@ def run_sweep(
                     population_size=population_size,
                     n_generations=cold_generations,
                     tournament_size=tournament_size,
+                    fuel_model=fuel_model,
                 )
                 cold_elapsed = time.perf_counter() - cold_start
                 warm_start_benchmark = WarmStartBenchmark(
@@ -926,6 +947,7 @@ def run_sweep(
         population_size=population_size,
         n_generations=cold_generations,
         tournament_size=tournament_size,
+        fuel_model=fuel_model,
         optimizer=optimizer,
     )
     # Re-tighten: a genuinely independent genome found above can also be
@@ -934,7 +956,7 @@ def run_sweep(
     grid_points = _apply_monotonic_envelope(grid_points, fleet, prices, base_regulations, fuel_model)
 
     switching_points = extract_switching_points(grid_points, fleet=fleet)
-    scenario_ticks = scenario_axis_positions(fleet, prices, representative_seed=seed)
+    scenario_ticks = scenario_axis_positions(fleet, prices, representative_seed=seed, fuel_model=fuel_model)
 
     assert warm_start_benchmark is not None  # guaranteed: price_grid has >= 2 points
     return SweepResult(

@@ -11,7 +11,7 @@ from knotwise.fleet.loader import load_fleet, load_prices
 from knotwise.optimization.exposure import (
     CAPEX_DECISION_TYPES,
     ExposedDecision,
-    compute_dwt_by_route_year,
+    compute_cargo_by_route_year,
     compute_exposure,
     compute_mps_crosscheck,
     detect_exposed_decisions,
@@ -271,8 +271,9 @@ class TestPriceRouteChange:
         }
         baseline_gene = _gene("A1", 2028, route_id="india_northeurope")
         vessel = next(v for v in fleet["vessels"] if v["vessel_id"] == "A1")
-        dwt_by_route_year = {("india_northeurope", 2028): 216000.0, ("india_mediterranean", 2028): 216000.0}
-        capital_at_risk, _status, _notes = price_route_change(decision, baseline_gene, vessel, fleet, dwt_by_route_year)
+        capacity = fleet["routes"]["india_northeurope"]["annual_cargo_demand_tonne_nm"]
+        cargo_by_route_year = {("india_northeurope", 2028): 3 * capacity, ("india_mediterranean", 2028): 3 * capacity}
+        capital_at_risk, _status, _notes = price_route_change(decision, baseline_gene, vessel, fleet, cargo_by_route_year)
         assert capital_at_risk == 0.0
 
     def test_nonzero_when_leaving_the_baseline_route_would_create_a_shortfall(self, fleet):
@@ -286,8 +287,9 @@ class TestPriceRouteChange:
         vessel = next(v for v in fleet["vessels"] if v["vessel_id"] == "A1")
         # Only this one vessel covers india_northeurope (floor 72000) -> moving
         # it away leaves that route's whole floor unserved.
-        dwt_by_route_year = {("india_northeurope", 2028): 72000.0, ("india_mediterranean", 2028): 216000.0}
-        capital_at_risk, _status, _notes = price_route_change(decision, baseline_gene, vessel, fleet, dwt_by_route_year)
+        capacity = fleet["routes"]["india_northeurope"]["annual_cargo_demand_tonne_nm"]
+        cargo_by_route_year = {("india_northeurope", 2028): capacity, ("india_mediterranean", 2028): 3 * capacity}
+        capital_at_risk, _status, _notes = price_route_change(decision, baseline_gene, vessel, fleet, cargo_by_route_year)
         assert capital_at_risk > 0.0
 
     def test_never_uses_the_flat_per_dwt_deterrent_rate(self, fleet):
@@ -303,9 +305,10 @@ class TestPriceRouteChange:
         }
         baseline_gene = _gene("A1", 2028, route_id="india_northeurope")
         vessel = next(v for v in fleet["vessels"] if v["vessel_id"] == "A1")
-        dwt_by_route_year = {("india_northeurope", 2028): 216000.0, ("india_mediterranean", 2028): 216000.0}
-        capital_at_risk, _, _ = price_route_change(decision, baseline_gene, vessel, fleet, dwt_by_route_year)
-        assert capital_at_risk != 720_000_000.0
+        capacity = fleet["routes"]["india_northeurope"]["annual_cargo_demand_tonne_nm"]
+        cargo_by_route_year = {("india_northeurope", 2028): 3 * capacity, ("india_mediterranean", 2028): 3 * capacity}
+        capital_at_risk, _, _ = price_route_change(decision, baseline_gene, vessel, fleet, cargo_by_route_year)
+        assert capital_at_risk == 0.0
 
 
 class TestPriceShorePower:
@@ -338,18 +341,20 @@ class TestPriceFueleuElection:
         assert status == "SECONDARY_SOURCE"
 
 
-class TestComputeDwtByRouteYear:
-    def test_sums_dwt_per_route_year(self, fleet):
+class TestComputeCargoByRouteYear:
+    def test_sums_cargo_capacity_per_route_year(self, fleet):
         genome = [
             _gene("A1", 2028, route_id="india_northeurope"),
             _gene("A2", 2028, route_id="india_northeurope"),
             _gene("B1", 2028, route_id="india_gulf"),
         ]
-        totals = compute_dwt_by_route_year(genome, fleet)
-        a_dwt = fleet["vessel_class_defaults"]["A"]["dwt_tonnes"]
-        b_dwt = fleet["vessel_class_defaults"]["B"]["dwt_tonnes"]
-        assert totals[("india_northeurope", 2028)] == pytest.approx(2 * a_dwt)
-        assert totals[("india_gulf", 2028)] == pytest.approx(b_dwt)
+        totals = compute_cargo_by_route_year(genome, fleet)
+        assert totals[("india_northeurope", 2028)] == pytest.approx(
+            2 * fleet["routes"]["india_northeurope"]["annual_cargo_demand_tonne_nm"]
+        )
+        assert totals[("india_gulf", 2028)] == pytest.approx(
+            fleet["routes"]["india_gulf"]["annual_cargo_demand_tonne_nm"]
+        )
 
 
 class TestRunConsistencyChecks:

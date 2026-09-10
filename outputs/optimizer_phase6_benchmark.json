@@ -1,0 +1,224 @@
+{
+  "document_version": "optimizer-phase6-fair-v1",
+  "generated_at": "2026-09-10T00:30:31Z",
+  "status": "SYNTHETIC_CONTROLLED_BENCHMARK",
+  "protocol": {
+    "shared_informed_initialization": "same deterministic feasible seed, then one shared coordinate-descent sweep",
+    "qiea_mean_field_initialization": false,
+    "final_local_refinement": true,
+    "solver_kwargs": {
+      "population_size": 20,
+      "n_generations": 15
+    },
+    "scenarios": [
+      "approved_text",
+      "liberia",
+      "tuvalu"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ]
+  },
+  "delivery_records": [
+    {
+      "scenario_id": "approved_text",
+      "seed": 0,
+      "ga": {
+        "total_usd": 391020739.60146767,
+        "seconds": 1.8149377640002058,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 392627834.22991914,
+        "seconds": 1.7601103890001468,
+        "feasible": true
+      }
+    },
+    {
+      "scenario_id": "approved_text",
+      "seed": 1,
+      "ga": {
+        "total_usd": 391621606.21102154,
+        "seconds": 1.5336327019995224,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 391905265.52834874,
+        "seconds": 2.0996983029999683,
+        "feasible": true
+      }
+    },
+    {
+      "scenario_id": "approved_text",
+      "seed": 2,
+      "ga": {
+        "total_usd": 392980202.5963669,
+        "seconds": 1.428649483999834,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 393247111.7760544,
+        "seconds": 1.9669478120003987,
+        "feasible": true
+      }
+    },
+    {
+      "scenario_id": "liberia",
+      "seed": 0,
+      "ga": {
+        "total_usd": 385712013.59613466,
+        "seconds": 1.3600114880000547,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 385639401.693015,
+        "seconds": 2.008362821999981,
+        "feasible": true
+      }
+    },
+    {
+      "scenario_id": "liberia",
+      "seed": 1,
+      "ga": {
+        "total_usd": 385761718.73720926,
+        "seconds": 1.3722532969995882,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 385750154.2223531,
+        "seconds": 1.8268725630005065,
+        "feasible": true
+      }
+    },
+    {
+      "scenario_id": "liberia",
+      "seed": 2,
+      "ga": {
+        "total_usd": 388025487.10405326,
+        "seconds": 1.3657626549993438,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 388017776.36911035,
+        "seconds": 1.5736301189999722,
+        "feasible": true
+      }
+    },
+    {
+      "scenario_id": "tuvalu",
+      "seed": 0,
+      "ga": {
+        "total_usd": 386846349.1075614,
+        "seconds": 1.6904801649998262,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 387981936.5098332,
+        "seconds": 2.0036611850000554,
+        "feasible": true
+      }
+    },
+    {
+      "scenario_id": "tuvalu",
+      "seed": 1,
+      "ga": {
+        "total_usd": 387199475.8557175,
+        "seconds": 1.6111516139999367,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 388285348.2732261,
+        "seconds": 1.9350521740007025,
+        "feasible": true
+      }
+    },
+    {
+      "scenario_id": "tuvalu",
+      "seed": 2,
+      "ga": {
+        "total_usd": 387578580.6644176,
+        "seconds": 1.410633644999507,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 388086392.9420861,
+        "seconds": 2.0073538739998185,
+        "feasible": true
+      }
+    }
+  ],
+  "summary": {
+    "paired_runs": 9,
+    "qiea_wins": 3,
+    "ga_wins": 6,
+    "ties": 0,
+    "median_qiea_minus_ga_usd": 283659.31732720137,
+    "mean_qiea_minus_ga_usd": 532783.1188884774,
+    "all_runs_feasible": true
+  },
+  "exact_reference": {
+    "decision_slots": 1,
+    "exhaustive_optimum_usd": 821986.8518518519,
+    "ga_gap_usd": 0.0,
+    "qiea_gap_usd": 0.0
+  },
+  "scaling": [
+    {
+      "decision_slots": 10,
+      "years": [
+        2026
+      ],
+      "ga": {
+        "total_usd": 77397165.94428119,
+        "seconds": 0.1630015379996621,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 77397165.94428119,
+        "seconds": 0.21381069399922126,
+        "feasible": true
+      }
+    },
+    {
+      "decision_slots": 30,
+      "years": [
+        2026,
+        2027,
+        2028
+      ],
+      "ga": {
+        "total_usd": 233105098.44397366,
+        "seconds": 0.6596637089996875,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 233304053.77511367,
+        "seconds": 0.7675132650001615,
+        "feasible": true
+      }
+    },
+    {
+      "decision_slots": 50,
+      "years": [
+        2026,
+        2027,
+        2028,
+        2029,
+        2030
+      ],
+      "ga": {
+        "total_usd": 393882209.1015511,
+        "seconds": 1.235276942999917,
+        "feasible": true
+      },
+      "qiea": {
+        "total_usd": 393304016.8077939,
+        "seconds": 2.048878522999985,
+        "feasible": true
+      }
+    }
+  ],
+  "claim": "This controlled synthetic benchmark does not establish a material QIEA delivery-cost advantage unless repeated paired runs show one."
+}

@@ -21,7 +21,7 @@ from typing import Any
 from deap import base, creator, tools
 
 from knotwise.fleet.model import OptionMenu, option_menu_for
-from knotwise.optimization.constraints import allowed_speed_band_indices
+from knotwise.optimization.constraints import feasible_speed_band_indices
 from knotwise.optimization.genome import (
     DECISION_FIELDS,
     Genome,
@@ -31,7 +31,9 @@ from knotwise.optimization.genome import (
     mutate_genome,
     random_genome,
 )
+from knotwise.optimization.fuel_model import FuelModel
 from knotwise.optimization.objective import ObjectiveCache, ObjectiveResult, evaluate
+from knotwise.optimization.scoring import PlanScorer
 
 # `creator.create` registers a class in `deap.creator`'s module-level
 # namespace exactly once per process; guard re-registration since this
@@ -61,6 +63,7 @@ class SolverResult:
     best_total_usd: float
     best_breakdown: ObjectiveResult
     generations_run: int
+    best_score: float | None = None
 
 
 def _clone(individual: creator.KnotWiseIndividual) -> creator.KnotWiseIndividual:
@@ -95,6 +98,8 @@ def _build_toolbox(
     rng: random.Random,
     tournament_size: int,
     cache: ObjectiveCache,
+    fuel_model: FuelModel | None,
+    scorer: PlanScorer,
 ) -> base.Toolbox:
     toolbox = base.Toolbox()
 
@@ -102,7 +107,7 @@ def _build_toolbox(
         return creator.KnotWiseIndividual(random_genome(fleet, rng))
 
     def mate(ind1, ind2):
-        child_a, child_b = crossover_genomes(list(ind1), list(ind2), rng)
+        child_a, child_b = crossover_genomes(list(ind1), list(ind2), rng, fleet)
         ind1[:] = child_a
         ind2[:] = child_b
         return ind1, ind2
@@ -112,7 +117,8 @@ def _build_toolbox(
         return (ind,)
 
     def fitness_of(ind) -> tuple[float]:
-        return (evaluate(list(ind), fleet, regulations, prices, cache=cache).total_usd,)
+        objective = evaluate(list(ind), fleet, regulations, prices, fuel_model, cache=cache)
+        return (scorer.score(list(ind), objective, fleet, regulations, fuel_model),)
 
     toolbox.register("individual", make_individual)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
@@ -146,7 +152,9 @@ def _seeded_population(
     return population
 
 
-def _gene_field_candidates(gene: VesselYearGene, menu: OptionMenu) -> list[VesselYearGene]:
+def _gene_field_candidates(
+    gene: VesselYearGene, menu: OptionMenu, vessel: dict[str, Any], fleet: dict[str, Any]
+) -> list[VesselYearGene]:
     """Every single-field variant of `gene` reachable within its own valid
     menu -- one field changed at a time, everything else held fixed. Used
     by `_local_search_refine`'s coordinate descent, not by the GA itself."""
@@ -154,12 +162,20 @@ def _gene_field_candidates(gene: VesselYearGene, menu: OptionMenu) -> list[Vesse
     for fuel_id in menu.fuels:
         if fuel_id != gene.fuel_id:
             candidates.append(replace(gene, fuel_id=fuel_id))
-    for index in allowed_speed_band_indices(len(menu.speed_bands_knots)):
+    for index in feasible_speed_band_indices(vessel, fleet, gene.year, gene.route_id):
         if index != gene.speed_band_index:
             candidates.append(replace(gene, speed_band_index=index))
     for route_id in menu.routes:
         if route_id != gene.route_id:
-            candidates.append(replace(gene, route_id=route_id))
+            route_speeds = feasible_speed_band_indices(vessel, fleet, gene.year, route_id)
+            if route_speeds:
+                candidates.append(
+                    replace(
+                        gene,
+                        route_id=route_id,
+                        speed_band_index=gene.speed_band_index if gene.speed_band_index in route_speeds else route_speeds[0],
+                    )
+                )
     if menu.shore_power_available:
         candidates.append(replace(gene, shore_power=not gene.shore_power))
     candidates.append(replace(gene, pool_opt_in=not gene.pool_opt_in))
@@ -174,15 +190,17 @@ def _local_search_refine(
     prices: dict[str, Any],
     rng: random.Random,
     *,
+    fuel_model: FuelModel | None = None,
     max_sweeps: int = 6,
     reference_genome: Genome | None = None,
     cache: ObjectiveCache | None = None,
+    scorer: PlanScorer | None = None,
 ) -> tuple[Genome, float]:
     """Coordinate-descent polish over the GA's output: visit every
     vessel-year slot (in a shuffled order, using the same seeded `rng` as
     everything else in this module) and try every single-field variant of
     it (`_gene_field_candidates`), holding every other slot fixed, keeping
-    whichever variant strictly lowers total cost. Repeat until a full sweep
+    whichever variant strictly lowers the supplied plan score. Repeat until a full sweep
     makes no improvement, or `max_sweeps` is reached.
 
     `max_sweeps` is a safety cap, not the intended stopping rule -- the
@@ -227,7 +245,9 @@ def _local_search_refine(
     """
     vessels_by_id = {v["vessel_id"]: v for v in fleet["vessels"]}
     genome = list(genome)
-    current_total = evaluate(genome, fleet, regulations, prices, cache=cache).total_usd
+    scorer = scorer or PlanScorer()
+    current_objective = evaluate(genome, fleet, regulations, prices, fuel_model, cache=cache)
+    current_total = scorer.score(genome, current_objective, fleet, regulations, fuel_model)
 
     slot_order = list(range(len(genome)))
     for _ in range(max_sweeps):
@@ -239,9 +259,10 @@ def _local_search_refine(
             menu = option_menu_for(vessel, fleet, gene.year)
             best_gene = gene
             best_total = current_total
-            for candidate_gene in _gene_field_candidates(gene, menu):
+            for candidate_gene in _gene_field_candidates(gene, menu, vessel, fleet):
                 trial = genome[:i] + [candidate_gene] + genome[i + 1 :]
-                total = evaluate(trial, fleet, regulations, prices, cache=cache).total_usd
+                objective = evaluate(trial, fleet, regulations, prices, fuel_model, cache=cache)
+                total = scorer.score(trial, objective, fleet, regulations, fuel_model)
                 if total < best_total - 1e-6:
                     best_total = total
                     best_gene = candidate_gene
@@ -252,9 +273,9 @@ def _local_search_refine(
         if not improved_this_sweep:
             break
 
-    if reference_genome is not None:
+    if reference_genome is not None and scorer.kind == "cost":
         genome, current_total = _canonicalize_against(
-            genome, reference_genome, current_total, fleet, regulations, prices, cache
+            genome, reference_genome, current_total, fleet, regulations, prices, fuel_model, cache
         )
     return genome, current_total
 
@@ -266,6 +287,7 @@ def _canonicalize_against(
     fleet: dict[str, Any],
     regulations: dict[str, Any],
     prices: dict[str, Any],
+    fuel_model: FuelModel | None,
     cache: ObjectiveCache | None,
 ) -> tuple[Genome, float]:
     """Revert every cost-neutral difference from `reference_genome` (see
@@ -299,7 +321,7 @@ def _canonicalize_against(
                 continue
             candidate = replace(current, **{field_name: reference_value})
             trial = genome[:i] + [candidate] + genome[i + 1 :]
-            total = evaluate(trial, fleet, regulations, prices, cache=cache).total_usd
+            total = evaluate(trial, fleet, regulations, prices, fuel_model, cache=cache).total_usd
             # Strictly a tie-break: `abs`, not `<=`. Accepting a strictly
             # *better* reference value here would work -- the coordinate
             # descent above stops at `max_sweeps` and does leave some on the
@@ -326,10 +348,18 @@ def run_ga(
     crossover_prob: float = 0.6,
     mutation_prob: float = 0.3,
     tournament_size: int = 3,
+    fuel_model: FuelModel | None = None,
     seed_genome: Genome | None = None,
     reference_genome: Genome | None = None,
+    scorer: PlanScorer | None = None,
+    polish: bool = True,
+    polish_max_sweeps: int = 6,
 ) -> SolverResult:
-    """Evolve a population of genomes to (approximately) minimize total fleet cost.
+    """Evolve a population of genomes to approximately minimize ``scorer``.
+
+    The default scorer minimizes total fleet cost. Alternative scorers retain
+    the same hard feasibility-enforced objective result and only rank feasible
+    plans differently.
 
     Deterministic for a fixed `seed`: every random draw in this run — initial
     population, tournament selection, crossover point, mutation slot/value —
@@ -351,7 +381,8 @@ def run_ga(
     """
     rng = random.Random(seed)
     cache = ObjectiveCache()
-    toolbox = _build_toolbox(fleet, regulations, prices, rng, tournament_size, cache)
+    scorer = scorer or PlanScorer()
+    toolbox = _build_toolbox(fleet, regulations, prices, rng, tournament_size, cache, fuel_model, scorer)
 
     if seed_genome is not None:
         population = _seeded_population(toolbox, fleet, seed_genome, population_size, rng)
@@ -386,30 +417,37 @@ def run_ga(
 
     best = hall_of_fame[0]
     best_genome = list(best)
-    breakdown = evaluate(best_genome, fleet, regulations, prices, cache=cache)
+    breakdown = evaluate(best_genome, fleet, regulations, prices, fuel_model, cache=cache)
 
-    # Coordinate-descent polish (see _local_search_refine's docstring):
-    # closes real single-slot convergence gaps the GA's finite population/
-    # generations can leave behind, cheaply (evaluate() calls only), then
-    # canonicalizes cost-neutral decisions against the reference plan.
-    polished_genome, polished_total = _local_search_refine(
-        best_genome,
-        fleet,
-        regulations,
-        prices,
-        rng,
-        reference_genome=reference_genome if reference_genome is not None else seed_genome,
-        cache=cache,
-    )
-    # `<=` (not `<`): the canonicalization pass deliberately returns an
-    # equal-cost plan, and that plan is the one worth keeping.
-    if polished_total <= breakdown.total_usd + DEGENERATE_COST_TOLERANCE_USD:
-        best_genome = polished_genome
-        breakdown = evaluate(best_genome, fleet, regulations, prices, cache=cache)
+    best_score = scorer.score(best_genome, breakdown, fleet, regulations, fuel_model)
+    if polish:
+        # Coordinate-descent polish (see _local_search_refine's docstring):
+        # closes real single-slot convergence gaps the GA's finite population/
+        # generations can leave behind, then canonicalizes cost-neutral choices.
+        # The cap is configurable for bounded scaling experiments; production
+        # keeps the six-sweep default and its existing convergence behavior.
+        polished_genome, polished_total = _local_search_refine(
+            best_genome,
+            fleet,
+            regulations,
+            prices,
+            rng,
+            fuel_model=fuel_model,
+            max_sweeps=polish_max_sweeps,
+            reference_genome=reference_genome if reference_genome is not None else seed_genome,
+            cache=cache,
+            scorer=scorer,
+        )
+        # `<=` (not `<`): the canonicalization pass deliberately returns an
+        # equal-cost plan, and that plan is the one worth keeping.
+        if polished_total <= best_score + DEGENERATE_COST_TOLERANCE_USD:
+            best_genome = polished_genome
+            breakdown = evaluate(best_genome, fleet, regulations, prices, fuel_model, cache=cache)
 
     return SolverResult(
         best_genome=best_genome,
         best_total_usd=breakdown.total_usd,
         best_breakdown=breakdown,
         generations_run=n_generations,
+        best_score=scorer.score(best_genome, breakdown, fleet, regulations, fuel_model),
     )

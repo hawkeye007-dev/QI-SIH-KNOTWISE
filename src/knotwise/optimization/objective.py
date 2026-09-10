@@ -23,7 +23,8 @@ from knotwise.optimization.compliance_cost import (
     fueleu_target_intensity,
     nzf_cost,
 )
-from knotwise.optimization.constraints import demand_shortfall_penalty
+from knotwise.optimization.annual_service import annual_service_facts
+from knotwise.optimization.constraints import annual_service_penalty, cargo_shortfall_penalty
 from knotwise.optimization.costs import CostBreakdown
 from knotwise.optimization.fuel_model import FuelModel, PhysicsFuelModel, sea_days
 from knotwise.optimization.genome import Genome
@@ -170,7 +171,8 @@ class _SlotLocal:
     raw_balance_gco2eq: float
     actual_intensity_gco2e_per_mj: float
     regulated_energy_mj: float
-    dwt_tonnes: float
+    annual_cargo_tonne_nm: float
+    annual_service: CostBreakdown
 
 
 def _slot_local_key(gene: Any) -> tuple[Any, ...]:
@@ -188,6 +190,7 @@ def _slot_local(
 ) -> _SlotLocal:
     """One vessel-year's slot-local costs and regulation-facing figures."""
     facts = vessel_year_facts(gene, vessel, fleet, regulations, fuel_model)
+    service = annual_service_facts(vessel, fleet, gene.route_id, facts.speed_knots)
     band_defaults = fleet["vessel_class_defaults"][vessel["band"]]
     fuel_price_entry = prices["fuels"][gene.fuel_id]
     label = f"{gene.vessel_id}/{gene.year}"
@@ -225,7 +228,8 @@ def _slot_local(
         raw_balance_gco2eq=facts.raw_fuel_eu_balance_gco2eq,
         actual_intensity_gco2e_per_mj=facts.actual_ghg_intensity_gco2e_per_mj,
         regulated_energy_mj=facts.regulated_energy_mj,
-        dwt_tonnes=band_defaults["dwt_tonnes"],
+        annual_cargo_tonne_nm=service.annual_cargo_tonne_nm,
+        annual_service=annual_service_penalty(vessel, fleet, gene.year, gene.route_id, gene.speed_band_index),
     )
 
 
@@ -271,6 +275,7 @@ def slot_local_total_usd(
         + local.cii.amount_usd
         + local.eu_ets.amount_usd
         + local.nzf.amount_usd
+        + local.annual_service.amount_usd
     )
 
 
@@ -318,6 +323,7 @@ class ObjectiveResult:
     time_cost: CostBreakdown
     compliance_costs: dict[str, CostBreakdown] = field(default_factory=dict)
     demand_penalty: CostBreakdown = field(default_factory=lambda: CostBreakdown(0.0, "ILLUSTRATIVE"))
+    annual_service_penalty: CostBreakdown = field(default_factory=lambda: CostBreakdown(0.0, "ILLUSTRATIVE"))
 
 
 def evaluate(
@@ -357,7 +363,8 @@ def evaluate(
     # second pass because it needs cross-vessel pooling resolved per year
     # before each vessel's multi-year ledger can be folded.
     context: dict[tuple[str, int], dict[str, Any]] = {}
-    dwt_by_route_year: dict[tuple[str, int], float] = defaultdict(float)
+    cargo_tonne_nm_by_route_year: dict[tuple[str, int], float] = defaultdict(float)
+    annual_service_costs: list[CostBreakdown] = []
 
     for vessel_id, genes in genes_by_vessel.items():
         vessel = vessels_by_id[vessel_id]
@@ -377,6 +384,7 @@ def evaluate(
             cii_costs.append(local.cii)
             eu_ets_costs.append(local.eu_ets)
             nzf_costs.append(local.nzf)
+            annual_service_costs.append(local.annual_service)
 
             context[(vessel_id, gene.year)] = {
                 "gene": gene,
@@ -385,7 +393,7 @@ def evaluate(
                 "actual_intensity": local.actual_intensity_gco2e_per_mj,
                 "regulated_energy_mj": local.regulated_energy_mj,
             }
-            dwt_by_route_year[(gene.route_id, gene.year)] += local.dwt_tonnes
+            cargo_tonne_nm_by_route_year[(gene.route_id, gene.year)] += local.annual_cargo_tonne_nm
 
     # Pooling: resolved once per year, across every FuelEU-eligible vessel
     # that opted in that year (component 3's headline mechanism).
@@ -426,7 +434,7 @@ def evaluate(
             fuel_eu_costs.append(pool_cost_by_vessel_year.get(key, result.cost))
 
     demand_costs = [
-        demand_shortfall_penalty(fleet, route_id, dwt_by_route_year.get((route_id, year), 0.0))
+        cargo_shortfall_penalty(fleet, route_id, cargo_tonne_nm_by_route_year.get((route_id, year), 0.0))
         for year in fleet["horizon_years"]
         for route_id in fleet["routes"]
     ]
@@ -441,12 +449,14 @@ def evaluate(
     opex_agg = _combine(opex_costs, "opex")
     time_agg = _combine(time_costs, "time")
     demand_agg = _combine(demand_costs, "demand")
+    annual_service_agg = _combine(annual_service_costs, "annual_service")
 
     total = (
         fuel_agg.amount_usd
         + opex_agg.amount_usd
         + time_agg.amount_usd
         + demand_agg.amount_usd
+        + annual_service_agg.amount_usd
         + sum(c.amount_usd for c in compliance_costs.values())
     )
 
@@ -457,4 +467,5 @@ def evaluate(
         time_cost=time_agg,
         compliance_costs=compliance_costs,
         demand_penalty=demand_agg,
+        annual_service_penalty=annual_service_agg,
     )

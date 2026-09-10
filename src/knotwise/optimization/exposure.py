@@ -78,7 +78,8 @@ from typing import Any
 
 from knotwise.fleet.model import option_menu_for
 from knotwise.optimization import mps_exposure
-from knotwise.optimization.constraints import demand_shortfall_penalty
+from knotwise.optimization.annual_service import annual_service_facts
+from knotwise.optimization.constraints import cargo_shortfall_penalty
 from knotwise.optimization.fuel_model import FuelModel, PhysicsFuelModel, sea_days
 from knotwise.optimization.genome import Genome
 from knotwise.optimization.objective import evaluate
@@ -291,6 +292,7 @@ def solve_scenario_with_stability(
     seeds: tuple[int, ...] = DEFAULT_STABILITY_SEEDS,
     population_size: int = DEFAULT_STABILITY_POPULATION_SIZE,
     n_generations: int = DEFAULT_STABILITY_GENERATIONS,
+    fuel_model: FuelModel | None = None,
     optimizer: str = "ga",
 ) -> ScenarioStabilitySolve:
     """Re-solve `scenario_id` under every seed in `seeds` independently and
@@ -329,6 +331,7 @@ def solve_scenario_with_stability(
             seed=seed,
             population_size=population_size,
             n_generations=n_generations,
+            fuel_model=fuel_model,
             optimizer=optimizer,
             reference_genome=reference_genome,
         )
@@ -358,6 +361,7 @@ def solve_all_scenarios_with_stability(
     seeds: tuple[int, ...] = DEFAULT_STABILITY_SEEDS,
     population_size: int = DEFAULT_STABILITY_POPULATION_SIZE,
     n_generations: int = DEFAULT_STABILITY_GENERATIONS,
+    fuel_model: FuelModel | None = None,
     optimizer: str = "ga",
 ) -> dict[str, ScenarioStabilitySolve]:
     return {
@@ -368,6 +372,7 @@ def solve_all_scenarios_with_stability(
             seeds=seeds,
             population_size=population_size,
             n_generations=n_generations,
+            fuel_model=fuel_model,
             optimizer=optimizer,
         )
         for scenario in load_scenarios()["scenarios"]
@@ -483,12 +488,15 @@ def price_speed_band(
     return capital_at_risk, "ILLUSTRATIVE", notes
 
 
-def compute_dwt_by_route_year(genome: Genome, fleet: dict[str, Any]) -> dict[tuple[str, int], float]:
+def compute_cargo_by_route_year(genome: Genome, fleet: dict[str, Any]) -> dict[tuple[str, int], float]:
     vessels_by_id = {v["vessel_id"]: v for v in fleet["vessels"]}
     totals: dict[tuple[str, int], float] = defaultdict(float)
     for gene in genome:
-        band = vessels_by_id[gene.vessel_id]["band"]
-        totals[(gene.route_id, gene.year)] += fleet["vessel_class_defaults"][band]["dwt_tonnes"]
+        vessel = vessels_by_id[gene.vessel_id]
+        menu = option_menu_for(vessel, fleet, gene.year)
+        totals[(gene.route_id, gene.year)] += annual_service_facts(
+            vessel, fleet, gene.route_id, menu.speed_bands_knots[gene.speed_band_index]
+        ).annual_cargo_tonne_nm
     return totals
 
 
@@ -497,12 +505,9 @@ def price_route_change(
     baseline_gene,
     vessel: dict[str, Any],
     fleet: dict[str, Any],
-    dwt_by_route_year: dict[tuple[str, int], float],
+    cargo_by_route_year: dict[tuple[str, int], float],
 ) -> tuple[float, str, str]:
-    """Capacity coverage delta: `constraints.demand_shortfall_penalty`
-    recomputed for the one or two routes actually affected by moving *this*
-    vessel's DWT off its baseline route and onto each candidate route, on
-    top of the rest of the baseline plan's real assignments.
+    """Annual cargo-coverage delta for one route election.
 
     Deliberately *not* `vessel_dwt * DEMAND_PENALTY_USD_PER_DWT_SHORTFALL`
     applied flat: that per-DWT rate is calibrated in constraints.py to be
@@ -516,29 +521,33 @@ def price_route_change(
     """
     distinct_routes = sorted(set(decision["values_by_scenario"].values()))
     year = decision["year"]
-    vessel_dwt = fleet["vessel_class_defaults"][vessel["band"]]["dwt_tonnes"]
     baseline_route = baseline_gene.route_id
+    baseline_menu = option_menu_for(vessel, fleet, baseline_gene.year)
+    baseline_capacity = annual_service_facts(
+        vessel, fleet, baseline_route, baseline_menu.speed_bands_knots[baseline_gene.speed_band_index]
+    ).annual_cargo_tonne_nm
 
     def total_shortfall_penalty_usd(candidate_route: str) -> float:
         affected_routes = {baseline_route, candidate_route}
         total = 0.0
+        candidate_capacity = annual_service_facts(
+            vessel, fleet, candidate_route, baseline_menu.speed_bands_knots[baseline_gene.speed_band_index]
+        ).annual_cargo_tonne_nm
         for route_id in affected_routes:
-            assigned = dwt_by_route_year.get((route_id, year), 0.0)
+            assigned = cargo_by_route_year.get((route_id, year), 0.0)
             if route_id == baseline_route and route_id != candidate_route:
-                assigned -= vessel_dwt
+                assigned -= baseline_capacity
             if route_id == candidate_route and route_id != baseline_route:
-                assigned += vessel_dwt
-            total += demand_shortfall_penalty(fleet, route_id, assigned).amount_usd
+                assigned += candidate_capacity
+            total += cargo_shortfall_penalty(fleet, route_id, assigned).amount_usd
         return total
 
     costs = {route_id: total_shortfall_penalty_usd(route_id) for route_id in distinct_routes}
     capital_at_risk = max(costs.values()) - min(costs.values())
     notes = (
-        f"Capacity-coverage delta: demand_shortfall_penalty recomputed for the routes this vessel could "
-        f"occupy ({sorted({baseline_route, *distinct_routes})}), moving only this vessel's {vessel_dwt:.0f} "
-        f"DWT between {distinct_routes} on top of the {BASELINE_SCENARIO_ID}-solved plan's other "
-        f"assignments. Zero when the other vessels already covering both routes leave enough slack above "
-        "each route's demand floor either way."
+        f"Annual cargo-coverage delta for routes {sorted({baseline_route, *distinct_routes})}, moving this "
+        f"vessel's annual cargo capacity between alternatives on top of the "
+        f"{BASELINE_SCENARIO_ID}-solved plan's other assignments."
     )
     return capital_at_risk, "ILLUSTRATIVE", notes
 
@@ -595,7 +604,7 @@ def price_exposed_decision(
     prices: dict[str, Any],
     base_regulations: dict[str, Any],
     fuel_model: FuelModel,
-    dwt_by_route_year: dict[tuple[str, int], float],
+    cargo_by_route_year: dict[tuple[str, int], float],
 ) -> ExposedDecision:
     key = (decision["vessel_id"], decision["year"])
     baseline_gene = baseline_by_key[key]
@@ -607,7 +616,7 @@ def price_exposed_decision(
     elif field_name == "speed_band_index":
         capital_at_risk, status, notes = price_speed_band(decision, baseline_gene, vessel, fleet, prices, fuel_model)
     elif field_name == "route_id":
-        capital_at_risk, status, notes = price_route_change(decision, baseline_gene, vessel, fleet, dwt_by_route_year)
+        capital_at_risk, status, notes = price_route_change(decision, baseline_gene, vessel, fleet, cargo_by_route_year)
     elif field_name == "shore_power":
         capital_at_risk, status, notes = price_shore_power(fleet)
     elif field_name in ("pool_opt_in", "borrow_election"):
@@ -753,7 +762,13 @@ def compute_exposure(
     fx = prices["fx_rates"]["usd_to_inr"]
 
     solves_by_scenario = solve_all_scenarios_with_stability(
-        fleet, prices, seeds=seeds, population_size=population_size, n_generations=n_generations, optimizer=optimizer
+        fleet,
+        prices,
+        seeds=seeds,
+        population_size=population_size,
+        n_generations=n_generations,
+        fuel_model=fuel_model,
+        optimizer=optimizer,
     )
     genomes_by_scenario = {sid: solve.best_genome for sid, solve in solves_by_scenario.items()}
     global_unstable_keys: set[tuple[str, int, str]] = set()
@@ -764,7 +779,7 @@ def compute_exposure(
     baseline_genome = baseline_solve.best_genome
     baseline_by_key = {(gene.vessel_id, gene.year): gene for gene in baseline_genome}
     base_regulations = resolve_regulations_for_scenario(BASELINE_SCENARIO_ID)
-    dwt_by_route_year = compute_dwt_by_route_year(baseline_genome, fleet)
+    cargo_by_route_year = compute_cargo_by_route_year(baseline_genome, fleet)
 
     # `detect_exposed_decisions` already excludes Band C; for any key not in
     # global_unstable_keys, every scenario's own 3-seed solve agreed, so its
@@ -790,7 +805,7 @@ def compute_exposure(
             prices,
             base_regulations,
             fuel_model,
-            dwt_by_route_year,
+            cargo_by_route_year,
         )
         for decision in stable_exposed
     ]
@@ -820,7 +835,7 @@ def compute_exposure(
             prices,
             base_regulations,
             fuel_model,
-            dwt_by_route_year,
+            cargo_by_route_year,
         )
         for decision in majority_band
     ]

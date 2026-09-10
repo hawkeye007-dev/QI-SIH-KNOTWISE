@@ -7,8 +7,8 @@ import { RoutesGeo, VesselYearGene, FleetVessel } from '@/types/demo';
 const LeafletMap = dynamic(() => import('./LeafletMap'), {
   ssr: false,
   loading: () => (
-    <div className="w-full h-full min-h-[420px] rounded-2xl glass-panel flex flex-col items-center justify-center text-slate-500">
-      <div className="animate-spin w-8 h-8 border-2 border-sky-400 border-t-transparent rounded-full mb-3" />
+    <div className="w-full h-full min-h-[420px] rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] flex flex-col items-center justify-center text-[var(--text-tertiary)]">
+      <div className="animate-spin w-8 h-8 border-2 border-[var(--border-strong)] border-t-[var(--text-primary)] rounded-full mb-3" />
       <span className="text-xs font-mono">Loading Map…</span>
     </div>
   ),

@@ -18,6 +18,9 @@ node_modules/
 
 # Docs (internal build notes, prompts, presenter scripts -- not for the repo)
 docs/
+frontend-old/
+frontend-reimagined/
+scripts/
 
 # OS
 .DS_Store
@@ -25,3 +28,10 @@ docs/
 # Editors
 .vscode/
 .idea/
+
+
+.agents/
+.codex/
+
+tests/
+

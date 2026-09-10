@@ -18,6 +18,7 @@
         "type": "object",
         "required": [
           "gross_tonnage", "dwt_tonnes", "design_speed_knots", "source",
+          "annual_service_available_days", "annual_maintenance_days", "availability_status",
           "anchor_daily_energy_mj_at_design_speed", "fixed_opex_usd_per_year",
           "charter_premium_usd_per_sea_day"
         ],
@@ -25,6 +26,9 @@
           "gross_tonnage": {"type": "number", "exclusiveMinimum": 0},
           "dwt_tonnes": {"type": "number", "exclusiveMinimum": 0},
           "design_speed_knots": {"type": "number", "exclusiveMinimum": 0},
+          "annual_service_available_days": {"type": "number", "exclusiveMinimum": 0, "maximum": 366},
+          "annual_maintenance_days": {"type": "number", "minimum": 0, "maximum": 366},
+          "availability_status": {"type": "string", "minLength": 1},
           "source": {"type": "string", "minLength": 1},
           "anchor_daily_energy_mj_at_design_speed": {"type": "number", "exclusiveMinimum": 0},
           "fixed_opex_usd_per_year": {"type": "number", "exclusiveMinimum": 0},
@@ -36,11 +40,17 @@
       "type": "object",
       "additionalProperties": {
         "type": "object",
-        "required": ["band", "voyage_pattern", "distance_nm", "min_capacity_dwt_required"],
+        "required": [
+          "band", "voyage_pattern", "annual_transit_distance_nm", "annual_port_service_days",
+          "payload_utilization_fraction", "laden_distance_fraction", "annual_cargo_demand_tonne_nm"
+        ],
         "properties": {
           "band": {"enum": ["A", "B", "C"]},
-          "distance_nm": {"type": "number", "exclusiveMinimum": 0},
-          "min_capacity_dwt_required": {"type": "number", "exclusiveMinimum": 0},
+          "annual_transit_distance_nm": {"type": "number", "exclusiveMinimum": 0},
+          "annual_port_service_days": {"type": "number", "minimum": 0, "maximum": 366},
+          "payload_utilization_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "laden_distance_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
+          "annual_cargo_demand_tonne_nm": {"type": "number", "exclusiveMinimum": 0},
           "voyage_pattern": {
             "type": "object",
             "required": ["is_international"],
