@@ -40,7 +40,7 @@ documented drift terms physics doesn't capture, plus bounded gaussian noise:
   cadence difference — so vessel band carries real signal for this term.
 - **Sea state** (`sea_state_index`, 0-1): a weather/current proxy. Its mean
   is nudged upward for longer, more open-ocean routes (derived from
-  `fleet.json`'s own `distance_nm` — not a new hardcoded per-route table).
+  `fleet.json`'s own `annual_transit_distance_nm` — not a new hardcoded per-route table).
   Its *effect* on fuel burn is additionally scaled up at higher speed
   (`_speed_amplification`) — added resistance in a seaway grows faster than
   linearly with speed, a real hydrodynamic effect — so there is a genuine
@@ -150,11 +150,11 @@ def sea_state_fraction(sea_state_index: float, speed_knots: float, design_speed_
 
 def _route_sea_state_bias(fleet: dict[str, Any], route_id: str) -> float:
     """Longer routes cross more open ocean -- a modest, documented proxy for
-    a higher average sea state, derived from fleet.json's own `distance_nm`
+    a higher average sea state, derived from fleet.json's own `annual_transit_distance_nm`
     rather than a new hardcoded per-route table. 0-1, relative to this
     fleet's longest route."""
-    distance_nm = fleet["routes"][route_id]["distance_nm"]
-    max_distance = max(r["distance_nm"] for r in fleet["routes"].values())
+    distance_nm = fleet["routes"][route_id]["annual_transit_distance_nm"]
+    max_distance = max(r["annual_transit_distance_nm"] for r in fleet["routes"].values())
     return distance_nm / max_distance if max_distance > 0 else 0.0
 
 

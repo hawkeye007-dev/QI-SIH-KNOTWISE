@@ -1,0 +1,404 @@
+{
+  "document_version": "optimizer-scaling-v1",
+  "generated_at": "2026-09-10T01:19:57Z",
+  "status": "SYNTHETIC_SCALING_PROBE",
+  "protocol": {
+    "fleet_construction": "repeated documented 10-vessel mix; route annual cargo demand scales proportionally",
+    "scenario": "approved_text",
+    "population_size": 8,
+    "generations": 3,
+    "polish_max_sweeps": 1,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "qiea_mean_field_initialization": true,
+    "final_local_refinement": true
+  },
+  "records": [
+    {
+      "vessel_count": 10,
+      "seed": 0,
+      "solver": "ga",
+      "total_usd": 433810976.88614327,
+      "seconds": 0.3103040530004364,
+      "feasible": true,
+      "decision_slots": 50
+    },
+    {
+      "vessel_count": 10,
+      "seed": 0,
+      "solver": "qiea",
+      "total_usd": 404902703.08047396,
+      "seconds": 0.4745292240004346,
+      "feasible": true,
+      "decision_slots": 50
+    },
+    {
+      "vessel_count": 10,
+      "seed": 1,
+      "solver": "ga",
+      "total_usd": 424650183.92610925,
+      "seconds": 0.3048653940004442,
+      "feasible": true,
+      "decision_slots": 50
+    },
+    {
+      "vessel_count": 10,
+      "seed": 1,
+      "solver": "qiea",
+      "total_usd": 408202217.7594237,
+      "seconds": 0.4367033230000743,
+      "feasible": true,
+      "decision_slots": 50
+    },
+    {
+      "vessel_count": 10,
+      "seed": 2,
+      "solver": "ga",
+      "total_usd": 475453760.66397864,
+      "seconds": 0.3079053390001718,
+      "feasible": true,
+      "decision_slots": 50
+    },
+    {
+      "vessel_count": 10,
+      "seed": 2,
+      "solver": "qiea",
+      "total_usd": 399636954.95910513,
+      "seconds": 0.4583228699993924,
+      "feasible": true,
+      "decision_slots": 50
+    },
+    {
+      "vessel_count": 25,
+      "seed": 0,
+      "solver": "ga",
+      "total_usd": 1259269864.233148,
+      "seconds": 1.4971996719996241,
+      "feasible": true,
+      "decision_slots": 125
+    },
+    {
+      "vessel_count": 25,
+      "seed": 0,
+      "solver": "qiea",
+      "total_usd": 1178377962.002966,
+      "seconds": 1.8216396960006023,
+      "feasible": true,
+      "decision_slots": 125
+    },
+    {
+      "vessel_count": 25,
+      "seed": 1,
+      "solver": "ga",
+      "total_usd": 1258699331.3733275,
+      "seconds": 1.4298973530003423,
+      "feasible": true,
+      "decision_slots": 125
+    },
+    {
+      "vessel_count": 25,
+      "seed": 1,
+      "solver": "qiea",
+      "total_usd": 1163043057.73358,
+      "seconds": 1.8038945590005824,
+      "feasible": true,
+      "decision_slots": 125
+    },
+    {
+      "vessel_count": 25,
+      "seed": 2,
+      "solver": "ga",
+      "total_usd": 1254296129.9015546,
+      "seconds": 1.5158768709998185,
+      "feasible": true,
+      "decision_slots": 125
+    },
+    {
+      "vessel_count": 25,
+      "seed": 2,
+      "solver": "qiea",
+      "total_usd": 1165113759.6724257,
+      "seconds": 1.9261177380003573,
+      "feasible": true,
+      "decision_slots": 125
+    },
+    {
+      "vessel_count": 50,
+      "seed": 0,
+      "solver": "ga",
+      "total_usd": 2238889669.353094,
+      "seconds": 5.612826063999819,
+      "feasible": true,
+      "decision_slots": 250
+    },
+    {
+      "vessel_count": 50,
+      "seed": 0,
+      "solver": "qiea",
+      "total_usd": 2072014635.3562977,
+      "seconds": 5.859098660999734,
+      "feasible": true,
+      "decision_slots": 250
+    },
+    {
+      "vessel_count": 50,
+      "seed": 1,
+      "solver": "ga",
+      "total_usd": 2202814510.630925,
+      "seconds": 5.420077796999976,
+      "feasible": true,
+      "decision_slots": 250
+    },
+    {
+      "vessel_count": 50,
+      "seed": 1,
+      "solver": "qiea",
+      "total_usd": 2063214553.4880443,
+      "seconds": 6.0441885119998915,
+      "feasible": true,
+      "decision_slots": 250
+    },
+    {
+      "vessel_count": 50,
+      "seed": 2,
+      "solver": "ga",
+      "total_usd": 2220972644.489208,
+      "seconds": 5.314222216999951,
+      "feasible": true,
+      "decision_slots": 250
+    },
+    {
+      "vessel_count": 50,
+      "seed": 2,
+      "solver": "qiea",
+      "total_usd": 2048096749.3193593,
+      "seconds": 6.1087797159998445,
+      "feasible": true,
+      "decision_slots": 250
+    },
+    {
+      "vessel_count": 100,
+      "seed": 0,
+      "solver": "ga",
+      "total_usd": 4498197215.382636,
+      "seconds": 23.082702896000228,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 0,
+      "solver": "qiea",
+      "total_usd": 4149505497.475741,
+      "seconds": 24.017635356000028,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 1,
+      "solver": "ga",
+      "total_usd": 4426037671.502757,
+      "seconds": 23.70038455699978,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 1,
+      "solver": "qiea",
+      "total_usd": 4110383941.290654,
+      "seconds": 25.424436583999523,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 2,
+      "solver": "ga",
+      "total_usd": 4492180905.710646,
+      "seconds": 23.192476665999493,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 2,
+      "solver": "qiea",
+      "total_usd": 4067314088.7619047,
+      "seconds": 25.224314555000092,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 200,
+      "seed": 0,
+      "solver": "ga",
+      "total_usd": 9045672585.378246,
+      "seconds": 112.30919770100081,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 0,
+      "solver": "qiea",
+      "total_usd": 8321320401.992592,
+      "seconds": 114.38229454999964,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 1,
+      "solver": "ga",
+      "total_usd": 8927956706.725357,
+      "seconds": 111.68472099800056,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 1,
+      "solver": "qiea",
+      "total_usd": 8216525082.0380535,
+      "seconds": 111.66276750299949,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 2,
+      "solver": "ga",
+      "total_usd": 9069005681.194414,
+      "seconds": 112.17723409899918,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 2,
+      "solver": "qiea",
+      "total_usd": 8200792025.98199,
+      "seconds": 110.88811289800105,
+      "feasible": true,
+      "decision_slots": 1000
+    }
+  ],
+  "summary": [
+    {
+      "vessel_count": 10,
+      "decision_slots": 50,
+      "solver": "ga",
+      "runs": 3,
+      "median_seconds": 0.3079053390001718,
+      "median_total_usd": 433810976.88614327,
+      "best_total_usd": 424650183.92610925,
+      "gap_to_best_observed_fraction": 0.0625898797811722,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 10,
+      "decision_slots": 50,
+      "solver": "qiea",
+      "runs": 3,
+      "median_seconds": 0.4583228699993924,
+      "median_total_usd": 404902703.08047396,
+      "best_total_usd": 399636954.95910513,
+      "gap_to_best_observed_fraction": 0.0,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 25,
+      "decision_slots": 125,
+      "solver": "ga",
+      "runs": 3,
+      "median_seconds": 1.4971996719996241,
+      "median_total_usd": 1258699331.3733275,
+      "best_total_usd": 1254296129.9015546,
+      "gap_to_best_observed_fraction": 0.07846061378484058,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 25,
+      "decision_slots": 125,
+      "solver": "qiea",
+      "runs": 3,
+      "median_seconds": 1.8216396960006023,
+      "median_total_usd": 1165113759.6724257,
+      "best_total_usd": 1163043057.73358,
+      "gap_to_best_observed_fraction": 0.0,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 50,
+      "decision_slots": 250,
+      "solver": "ga",
+      "runs": 3,
+      "median_seconds": 5.420077796999976,
+      "median_total_usd": 2220972644.489208,
+      "best_total_usd": 2202814510.630925,
+      "gap_to_best_observed_fraction": 0.0755422132098901,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 50,
+      "decision_slots": 250,
+      "solver": "qiea",
+      "runs": 3,
+      "median_seconds": 6.0441885119998915,
+      "median_total_usd": 2063214553.4880443,
+      "best_total_usd": 2048096749.3193593,
+      "gap_to_best_observed_fraction": 0.0,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 100,
+      "decision_slots": 500,
+      "solver": "ga",
+      "runs": 3,
+      "median_seconds": 23.192476665999493,
+      "median_total_usd": 4492180905.710646,
+      "best_total_usd": 4426037671.502757,
+      "gap_to_best_observed_fraction": 0.0881966759665832,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 100,
+      "decision_slots": 500,
+      "solver": "qiea",
+      "runs": 3,
+      "median_seconds": 25.224314555000092,
+      "median_total_usd": 4110383941.290654,
+      "best_total_usd": 4067314088.7619047,
+      "gap_to_best_observed_fraction": 0.0,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 200,
+      "decision_slots": 1000,
+      "solver": "ga",
+      "runs": 3,
+      "median_seconds": 112.17723409899918,
+      "median_total_usd": 9045672585.378246,
+      "best_total_usd": 8927956706.725357,
+      "gap_to_best_observed_fraction": 0.0886700550921841,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 200,
+      "decision_slots": 1000,
+      "solver": "qiea",
+      "runs": 3,
+      "median_seconds": 111.66276750299949,
+      "median_total_usd": 8216525082.0380535,
+      "best_total_usd": 8200792025.98199,
+      "gap_to_best_observed_fraction": 0.0,
+      "all_runs_feasible": true
+    }
+  ],
+  "claim": "This synthetic fixed-budget scaling probe measures feasibility, time and relative observed quality. It does not establish an operational QIEA advantage or an exact optimality gap beyond the enumerated one-slot reference."
+}

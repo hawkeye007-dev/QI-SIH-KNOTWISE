@@ -6,15 +6,19 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { RoutesGeo, VesselYearGene, FleetVessel } from '@/types/demo';
 
+// Marker colors stay fixed regardless of site theme -- the map tiles
+// underneath are standard light OSM raster tiles in both themes (a themed
+// tile set needs a keyed provider), so pins are tuned to read clearly
+// against that light basemap either way.
 const vesselIcon = (id: string, flipped: boolean) => {
   return L.divIcon({
     html: `<div style="
-      width:30px;height:30px;background:${flipped ? '#ffffff' : '#121212'};
-      border:${flipped ? '2px solid #ffffff' : '1.5px solid #666666'};
+      width:30px;height:30px;background:${flipped ? '#4f46e5' : '#111827'};
+      border:2px solid #ffffff;
       border-radius:50%;display:flex;align-items:center;justify-content:center;
-      color:${flipped ? '#000000' : '#ffffff'};font-family:monospace;font-weight:700;font-size:11px;
-      box-shadow: ${flipped ? '0 0 10px rgba(255,255,255,0.7)' : '0 2px 6px rgba(0,0,0,0.8)'};
-      transition: all 0.2s ease;
+      color:#ffffff;font-family:var(--font-sans);font-weight:700;font-size:11px;
+      box-shadow: ${flipped ? '0 0 0 3px rgba(79,70,229,0.25)' : '0 2px 6px rgba(16,24,40,0.35)'};
+      transition: transform 0.2s ease;
     ">${id}</div>`,
     className: '',
     iconSize: [30, 30],
@@ -72,17 +76,22 @@ const LeafletMap: React.FC<Props> = ({ routesGeo, currentConfig, baselineConfig,
   };
 
   return (
-    <div className="relative w-full h-full min-h-[420px] border border-neutral-800 rounded-xl overflow-hidden bg-neutral-950 shadow-inner">
-      <MapContainer center={[18, 60]} zoom={3} style={{ width: '100%', height: '100%' }} zoomControl={true}>
-        {/* Standard OpenStreetMap tiles, no API key -- inverted via CSS
-            (.leaflet-tile in globals.css) to match the dark theme. */}
+    <div className="relative w-full h-full min-h-[420px] border border-[var(--border)] rounded-xl overflow-hidden bg-[var(--surface-sunken)] shadow-sm">
+      {/* Fill this (position:relative) root by insets rather than height:100%.
+          A percentage height only resolves against a parent with a *definite*
+          height; when an ancestor sets min-height alone the percentage
+          collapses to zero and Leaflet initialises into a 0px box. */}
+      <MapContainer center={[18, 60]} zoom={3} style={{ position: 'absolute', inset: 0 }} zoomControl={true}>
+        {/* Standard OpenStreetMap tiles, no API key -- the map's own UI
+            chrome (popups/controls) themes via globals.css, tile imagery
+            stays the standard light basemap in both site themes. */}
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
           url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         {Object.entries(routesGeo.routes).map(([id, r]) => (
           <Polyline key={id} positions={r.waypoints} pathOptions={{
-            color: '#666666', weight: 2, opacity: 0.7, dashArray: '5, 5',
+            color: '#9ca3af', weight: 2, opacity: 0.8, dashArray: '5, 5',
           }} />
         ))}
         {vessels.map(v => {
@@ -91,10 +100,10 @@ const LeafletMap: React.FC<Props> = ({ routesGeo, currentConfig, baselineConfig,
           return (
             <Marker key={v.vessel_id} position={pos} icon={vesselIcon(v.vessel_id, flipped)}>
               <Popup>
-                <div style={{ fontSize: 11, fontFamily: 'monospace', padding: '4px 6px', color: '#e5e5e5' }}>
-                  <div style={{ fontWeight: 'bold', fontSize: 12, borderBottom: '1px solid #333', paddingBottom: 2, marginBottom: 4 }}>
-                    Vessel {v.vessel_id} <span style={{ opacity: 0.6 }}>({v.band})</span>
-                    {flipped && <span style={{ background: '#fff', color: '#000', padding: '1px 4px', borderRadius: 3, marginLeft: 6, fontSize: 9 }}>REALLOCATED</span>}
+                <div className="text-xs font-mono px-1.5 py-1 text-[var(--text-primary)]">
+                  <div className="font-bold text-[13px] border-b border-[var(--border)] pb-1 mb-1 flex items-center">
+                    Vessel {v.vessel_id} <span className="opacity-60 ml-1">({v.band})</span>
+                    {flipped && <span className="bg-[var(--accent)] text-white px-1.5 py-0.5 rounded ml-1.5 text-[10px]">REALLOCATED</span>}
                   </div>
                   <div>Assigned Route: <strong>{route}</strong></div>
                   <div>Fuel Choice: <strong>{gene?.fuel_id || '—'}</strong></div>

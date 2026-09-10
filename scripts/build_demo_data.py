@@ -19,13 +19,22 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from knotwise.fleet.loader import load_fleet, load_prices
+from knotwise.optimization.fuel_model import PhysicsFuelModel
 from knotwise.optimization.exposure import (
     compute_exposure,
     compute_mps_crosscheck,
     exposure_result_to_dict,
 )
 from knotwise.optimization.mps_exposure import comparison_rows_to_dicts
-from knotwise.optimization.sweep import DEFAULT_PRICE_GRID, run_sweep, sweep_result_to_dict
+from knotwise.optimization.plan_metrics import plan_metrics
+from knotwise.optimization.alternatives import build_comparable_alternatives
+from knotwise.optimization.sweep import (
+    DEFAULT_PRICE_GRID,
+    regulations_for_carbon_price,
+    run_sweep,
+    sweep_result_to_dict,
+)
+from knotwise.regulatory.scenario_resolution import resolve_regulations_for_scenario
 
 ROUTES_GEO = {
     "status": "ILLUSTRATIVE",
@@ -123,6 +132,10 @@ PRODUCTION_EXPOSURE_KWARGS = dict(seeds=(0, 1, 2), population_size=200, n_genera
 FAST_SWEEP_KWARGS = dict(population_size=20, cold_generations=15, warm_generations=6)
 FAST_EXPOSURE_KWARGS = dict(seeds=(0, 1), population_size=30, n_generations=30)
 
+# One declared operating case for the three plan choices.  This is a modelled
+# effective carbon price, not a claim about a live market quote.
+RECOMMENDATION_CARBON_PRICE_USD_PER_TCO2E = 175.0
+
 #: Where `scripts/benchmark_optimizers.py` leaves its GA-vs-QIEA comparison.
 #: Read, never written, by this script.
 BENCHMARK_PATH = PROJECT_ROOT / "outputs" / "optimizer_benchmark.json"
@@ -176,21 +189,19 @@ def load_optimizer_benchmark(demo_optimizer: str) -> dict:
     return benchmark
 
 
-def load_fuel_predictor_benchmark() -> dict:
+def load_fuel_predictor_benchmark(demo_predictor: str, fallback_reason: str | None = None) -> dict:
     """Embed `benchmark_fuel_predictor.py`'s physics-vs-LightGBM-vs-MLP-vs-
     tensor-train comparison, if it has been run — same "defined shape for
     absent, not zero" contract as `load_optimizer_benchmark`, and for the
-    same reason: this demo's live fleet plan is solved with `PhysicsFuelModel`
-    regardless (see fuel_predictors.py's module docstring for why the learned
-    arms stay a standalone comparison rather than being swapped into the
-    solver), so recomputing this on every build would answer a question that
-    doesn't change between builds, at real cost, for no benefit to the demo.
+    same reason: model selection is benchmarked separately from plan
+    generation, then the selected model is refit on all synthetic training
+    telemetry for the demo plan.
     """
     if not FUEL_PREDICTOR_BENCHMARK_PATH.exists():
         return {
             "status": "NOT_AVAILABLE",
             "available": False,
-            "demo_built_with_predictor": "physics",
+            "demo_built_with_predictor": demo_predictor,
             "notes": (
                 f"No fuel-predictor benchmark found at {FUEL_PREDICTOR_BENCHMARK_PATH.name}. Run "
                 "scripts/benchmark_fuel_predictor.py to produce one; it writes only its own "
@@ -202,23 +213,20 @@ def load_fuel_predictor_benchmark() -> dict:
         benchmark = json.load(handle)
 
     benchmark["available"] = True
-    # The live fleet plan is always solved with the physics-only fuel model
-    # (objective.evaluate's own default) -- the learned arms are a
-    # standalone benchmark, never swapped into the solver this pass
-    # (fuel_predictors.py's module docstring explains the design reason).
-    benchmark["demo_built_with_predictor"] = "physics"
+    benchmark["demo_built_with_predictor"] = demo_predictor
     benchmark["freshness_note"] = (
         "This comparison was produced by a separate run of scripts/benchmark_fuel_predictor.py "
         f"at {benchmark.get('generated_at', 'an unrecorded time')}, on synthetic telemetry -- not "
         "at the settings used to build this demo, and not necessarily from the same revision. "
-        "It describes how the four fuel-consumption prediction arms compare to each other on "
-        "that synthetic data; the fleet plan shown elsewhere in this file is solved with the "
-        "physics-only model regardless."
+        "It describes how the four fuel-consumption prediction arms compare on synthetic data. "
+        f"This fleet plan was optimized with '{demo_predictor}' fuel estimates."
     )
+    if fallback_reason:
+        benchmark["freshness_note"] += f" The learned-predictor fit failed, so physics fallback was used: {fallback_reason}"
     return benchmark
 
 
-def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
+def build_demo_data(*, fast: bool = False, optimizer: str = "qiea") -> dict:
     print("=" * 60)
     print(f"KnotWise: Building demo_data.json{' [--fast dev mode]' if fast else ''} [optimizer={optimizer}]")
     print("=" * 60)
@@ -232,6 +240,30 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
     fleet = load_fleet()
     prices = load_prices()
 
+    # The benchmark selected LightGBM by leave-one-vessel-out MAPE. Refit it
+    # on the full synthetic training table before optimization, exactly as a
+    # chosen model would be deployed after validation. Physics remains an
+    # explicit, safe fallback so a missing ML dependency can never leave a
+    # partially-generated plan or silently substitute unknown estimates.
+    predictor_fallback_reason: str | None = None
+    try:
+        # Keep this import inside the protected fit path: a build without the
+        # optional ML runtime can still generate a clearly-labelled
+        # physics-only plan instead of failing before fallback is available.
+        from knotwise.optimization.fuel_predictors import (
+            VALIDATED_DEPLOYMENT_PREDICTOR_ID,
+            fit_validated_deployment_predictor,
+        )
+
+        fuel_model = fit_validated_deployment_predictor(fleet)
+        predictor_id = VALIDATED_DEPLOYMENT_PREDICTOR_ID
+        print(f"      Fitted validated {predictor_id} residual predictor on synthetic telemetry.")
+    except Exception as error:
+        fuel_model = PhysicsFuelModel()
+        predictor_id = "physics"
+        predictor_fallback_reason = f"{type(error).__name__}: {error}"
+        print(f"      Predictor fit unavailable; using physics fallback ({predictor_fallback_reason}).")
+
     # 2. Run carbon-price sweep ($0–$1000 step $25, warm-started)
     print(f"[2/6] Running carbon-price sweep ($0–$1000, step $25, warm-started) with {sweep_kwargs}...")
     sweep_start = time.perf_counter()
@@ -241,14 +273,17 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
         price_grid=DEFAULT_PRICE_GRID,
         seed=0,
         optimizer=optimizer,
+        fuel_model=fuel_model,
         **sweep_kwargs,
     )
     sweep_elapsed = time.perf_counter() - sweep_start
     print(f"      Sweep completed in {sweep_elapsed:.1f}s across {len(sweep_result.grid_points)} grid points.")
     print(f"      Extracted {len(sweep_result.switching_points)} decision switching points.")
     n_envelope_corrected = sum(1 for gp in sweep_result.grid_points if gp.envelope_corrected)
-    print(f"      Monotonic envelope replaced {n_envelope_corrected}/{len(sweep_result.grid_points)} grid points'"
-          " own GA solve with a cheaper genome found at another price.")
+    print(
+        f"      Monotonic envelope replaced {n_envelope_corrected}/{len(sweep_result.grid_points)} grid points' "
+        f"own {optimizer.upper()} solve with a cheaper genome found at another price."
+    )
 
     # Validate grid boundaries for computed scenario axis ticks
     print("[3/6] Validating scenario axis positions against price grid...")
@@ -268,6 +303,7 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
         prices,
         sweep_result,
         optimizer=optimizer,
+        fuel_model=fuel_model,
         **exposure_kwargs,
     )
     exp_elapsed = time.perf_counter() - exp_start
@@ -288,6 +324,42 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
     # 4. Serialize dict structures and assemble payload
     print("[6/6] Assembling final demo_data.json payload...")
     sweep_dict = sweep_result_to_dict(sweep_result)
+    base_regulations = resolve_regulations_for_scenario("approved_text")
+    for serialized_point, grid_point in zip(sweep_dict["grid_points"], sweep_result.grid_points):
+        metrics = plan_metrics(
+            grid_point.genome,
+            fleet,
+            regulations_for_carbon_price(base_regulations, grid_point.price_usd_per_tco2e),
+            prices,
+            fuel_model,
+        )
+        if abs(metrics["total_usd"] - grid_point.total_usd) > 1e-6:
+            raise AssertionError("serialized plan metrics disagree with the sweep point cost")
+        serialized_point["metrics"] = metrics
+    recommendation_kwargs = (
+        dict(population_size=20, n_generations=15)
+        if fast
+        else dict(population_size=200, n_generations=200)
+    )
+    recommendation_regulations = regulations_for_carbon_price(
+        base_regulations, RECOMMENDATION_CARBON_PRICE_USD_PER_TCO2E
+    )
+    comparable_recommendations = build_comparable_alternatives(
+        fleet,
+        recommendation_regulations,
+        prices,
+        fuel_model=fuel_model,
+        optimizer=optimizer,
+        **recommendation_kwargs,
+    )
+    comparable_recommendations["scenario"] = {
+        "scenario_id": "approved_text",
+        "effective_carbon_price_usd_per_tco2e": RECOMMENDATION_CARBON_PRICE_USD_PER_TCO2E,
+        "note": (
+            "All three alternatives are independently optimized and re-evaluated under this "
+            "same synthetic approved-text operating scenario."
+        ),
+    }
     exposure_dict = exposure_result_to_dict(exposure_result)
     exposure_dict["mps_crosscheck"] = {
         "description": (
@@ -310,14 +382,18 @@ def build_demo_data(*, fast: bool = False, optimizer: str = "ga") -> dict:
             "status_disclaimer": "SYNTHETIC FLEET, PROTOTYPE-GRADE FIGURES",
             "provenance": "Generated by scripts/build_demo_data.py calling knotwise optimizer & compliance core",
             "optimizer": optimizer,
+            "fuel_model": predictor_id,
+            "fuel_model_status": "SYNTHETIC_VALIDATED" if predictor_id != "physics" else "PHYSICS_FALLBACK",
+            "fuel_model_fallback_reason": predictor_fallback_reason,
         },
         "routes_geo": ROUTES_GEO,
         "fleet": fleet,
         "prices": prices,
         "sweep": sweep_dict,
+        "comparable_recommendations": comparable_recommendations,
         "exposure": exposure_dict,
         "optimizer_benchmark": load_optimizer_benchmark(optimizer),
-        "fuel_predictor_benchmark": load_fuel_predictor_benchmark(),
+        "fuel_predictor_benchmark": load_fuel_predictor_benchmark(predictor_id, predictor_fallback_reason),
     }
 
     # Print summary highlights
@@ -378,31 +454,35 @@ def main():
     parser.add_argument(
         "--optimizer",
         choices=("ga", "qiea"),
-        default="ga",
-        help="Solver used for every sweep grid point and every exposure stability seed: the classical "
-        "Genetic Algorithm (default, what demo_data.json has always shipped with) or the Quantum-Inspired "
-        "Evolutionary Algorithm (qiea_solver.py). Both write the same demo_data.json shape.",
+        default="qiea",
+        help="Solver used for every sweep grid point and every exposure stability seed: the Quantum-Inspired "
+        "Evolutionary Algorithm (default, the showcased recommendation) or the classical "
+        "Genetic Algorithm for a comparison build. Both write the same demo_data.json shape.",
     )
     args = parser.parse_args()
 
     outputs_dir = PROJECT_ROOT / "outputs"
-    frontend_public_dir = PROJECT_ROOT / "frontend" / "public"
+    frontend_public_dirs = [
+        PROJECT_ROOT / "frontend" / "public",
+        PROJECT_ROOT / "frontend-reimagined" / "public",
+    ]
 
     outputs_dir.mkdir(parents=True, exist_ok=True)
-    frontend_public_dir.mkdir(parents=True, exist_ok=True)
+    for directory in frontend_public_dirs:
+        directory.mkdir(parents=True, exist_ok=True)
 
     demo_data = build_demo_data(fast=args.fast, optimizer=args.optimizer)
 
     output_path = outputs_dir / "demo_data.json"
-    frontend_path = frontend_public_dir / "demo_data.json"
-
     print(f"Writing {output_path}...")
     with open(output_path, "w") as f:
         json.dump(demo_data, f, indent=2)
 
-    print(f"Copying to {frontend_path}...")
-    with open(frontend_path, "w") as f:
-        json.dump(demo_data, f, indent=2)
+    for directory in frontend_public_dirs:
+        frontend_path = directory / "demo_data.json"
+        print(f"Copying to {frontend_path}...")
+        with open(frontend_path, "w") as f:
+            json.dump(demo_data, f, indent=2)
 
     print("Successfully completed build_demo_data.py!")
 

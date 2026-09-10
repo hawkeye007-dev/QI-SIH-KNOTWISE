@@ -1,47 +1,73 @@
-"""Hard and soft constraints (Task 2R component 3, item 2).
+"""Hard operating constraints for fleet-plan feasibility.
 
-Compatibility masks (fuel/engine-type) are already enforced by
-`knotwise.fleet.model.option_menu_for` (component 2) — not re-implemented
-here. This module covers the two constraints component 3 adds:
+Fuel compatibility remains owned by ``fleet.model.option_menu_for``.  This
+module owns the constraints that depend on a complete annual assignment:
 
-- **Schedule reliability (speed floor)**: a true hard mask, applied in
-  `genome.py`'s sampling (never generating the two slowest of 8 bands) rather
-  than by shrinking `option_menu_for`'s own output, which stays 8 bands to
-  preserve component 2's already-committed contract and tests.
-- **Demand constraint**: a softer, explicitly-ILLUSTRATIVE constraint (per
-  the task's own framing) — a large penalty rather than outright rejection,
-  since under-serving a route-year is a modelling simplification's failure
-  mode, not a regulatory hard invariant.
+- a route-specific annual-service envelope (sea transit + port service <=
+  post-maintenance availability); and
+- annual cargo demand measured in tonne-nautical-miles, not a DWT proxy.
+
+Both return an infinite cost at the objective boundary, while genome operators
+construct and repair plans to stay inside the same feasible region.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+from knotwise.fleet.model import option_menu_for
+from knotwise.optimization.annual_service import annual_service_facts, route_demand_tonne_nm
 from knotwise.optimization.costs import CostBreakdown
 
-#: Skip the 2 slowest of the 8 speed bands `fleet.model.speed_bands_knots`
-#: produces — "so plans stay operable" (Task 2R component 3, item 2).
+#: The two physically implausible lowest bands remain unavailable even before
+#: route-specific annual-service availability is applied.
 MIN_SPEED_BAND_INDEX = 2
-
-#: ILLUSTRATIVE — large enough that the GA never prefers leaving a route
-#: under-served over any realistic combination of the other cost terms.
-DEMAND_PENALTY_USD_PER_DWT_SHORTFALL = 10_000
 
 
 def allowed_speed_band_indices(n_bands: int) -> range:
-    """Indices into `option_menu_for(...).speed_bands_knots` the solver may pick from."""
+    """The global speed-floor domain, independent of one route assignment."""
     return range(MIN_SPEED_BAND_INDEX, n_bands)
 
 
-def demand_shortfall_penalty(fleet: dict[str, Any], route_id: str, assigned_dwt_total: float) -> CostBreakdown:
-    """ILLUSTRATIVE penalty when a route-year's assigned capacity falls short of the demand floor."""
-    required = fleet["routes"][route_id]["min_capacity_dwt_required"]
-    shortfall = max(required - assigned_dwt_total, 0.0)
-    if shortfall <= 0:
-        return CostBreakdown(0.0, "ILLUSTRATIVE", f"{route_id}: demand met.")
+def feasible_speed_band_indices(vessel: dict[str, Any], fleet: dict[str, Any], year: int, route_id: str) -> list[int]:
+    """Speed bands that satisfy both the global floor and annual service time."""
+    menu = option_menu_for(vessel, fleet, year)
+    if route_id not in menu.routes:
+        raise ValueError(f"{route_id} is not a valid route for {vessel['vessel_id']}")
+    return [
+        index
+        for index in allowed_speed_band_indices(len(menu.speed_bands_knots))
+        if annual_service_facts(vessel, fleet, route_id, menu.speed_bands_knots[index]).feasible
+    ]
+
+
+def annual_service_penalty(
+    vessel: dict[str, Any], fleet: dict[str, Any], year: int, route_id: str, speed_band_index: int
+) -> CostBreakdown:
+    """Return infeasible when a vessel cannot complete its annual service."""
+    menu = option_menu_for(vessel, fleet, year)
+    if speed_band_index not in allowed_speed_band_indices(len(menu.speed_bands_knots)):
+        return CostBreakdown(float("inf"), "INFEASIBLE", "speed band is below the operational floor")
+    facts = annual_service_facts(vessel, fleet, route_id, menu.speed_bands_knots[speed_band_index])
+    if facts.feasible:
+        return CostBreakdown(0.0, "FEASIBLE", f"annual service {facts.total_service_days:.1f}/{facts.available_days:.0f} days")
     return CostBreakdown(
-        shortfall * DEMAND_PENALTY_USD_PER_DWT_SHORTFALL,
-        "ILLUSTRATIVE",
-        f"{route_id}: under-served by {shortfall:.0f} DWT.",
+        float("inf"),
+        "INFEASIBLE",
+        f"annual service requires {facts.total_service_days:.1f} days; {facts.available_days:.0f} are available",
+    )
+
+
+def cargo_shortfall_penalty(
+    fleet: dict[str, Any], route_id: str, assigned_cargo_tonne_nm: float, demand_multiplier: float = 1.0
+) -> CostBreakdown:
+    """Return infeasible when annual cargo demand exceeds allocated capacity."""
+    required = route_demand_tonne_nm(fleet, route_id, demand_multiplier)
+    shortfall = max(required - assigned_cargo_tonne_nm, 0.0)
+    if shortfall <= 0:
+        return CostBreakdown(0.0, "FEASIBLE", f"{route_id}: annual cargo demand met.")
+    return CostBreakdown(
+        float("inf"),
+        "INFEASIBLE",
+        f"{route_id}: annual cargo shortfall {shortfall:.0f} tonne-nm; rejected as infeasible.",
     )

@@ -1,0 +1,178 @@
+{
+  "document_version": "optimizer-scaling-v1",
+  "generated_at": "2026-09-10T01:57:46Z",
+  "status": "SYNTHETIC_SCALING_PROBE",
+  "protocol": {
+    "fleet_construction": "repeated documented 10-vessel mix; route annual cargo demand scales proportionally",
+    "scenario": "approved_text",
+    "population_size": 8,
+    "generations": 3,
+    "polish_max_sweeps": 1,
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "initialization": "shared_informed",
+    "shared_anchor_setup": "one shared coordinate-descent sweep before each paired run",
+    "qiea_mean_field_initialization": false,
+    "final_local_refinement": true
+  },
+  "records": [
+    {
+      "vessel_count": 100,
+      "seed": 0,
+      "solver": "ga",
+      "total_usd": 4088699830.3975525,
+      "seconds": 19.851944326999728,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 0,
+      "solver": "qiea",
+      "total_usd": 4085991685.114778,
+      "seconds": 21.083030416999463,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 1,
+      "solver": "ga",
+      "total_usd": 4114586775.909471,
+      "seconds": 20.755019854999773,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 1,
+      "solver": "qiea",
+      "total_usd": 4102634678.84212,
+      "seconds": 21.4791236150013,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 2,
+      "solver": "ga",
+      "total_usd": 4117145286.737186,
+      "seconds": 19.517614050000702,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 100,
+      "seed": 2,
+      "solver": "qiea",
+      "total_usd": 4119923962.270278,
+      "seconds": 21.861462381999445,
+      "feasible": true,
+      "decision_slots": 500
+    },
+    {
+      "vessel_count": 200,
+      "seed": 0,
+      "solver": "ga",
+      "total_usd": 8174322525.941034,
+      "seconds": 87.01141405499948,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 0,
+      "solver": "qiea",
+      "total_usd": 8173279142.824087,
+      "seconds": 86.93399814300028,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 1,
+      "solver": "ga",
+      "total_usd": 8180437500.060583,
+      "seconds": 86.60796241500066,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 1,
+      "solver": "qiea",
+      "total_usd": 8176446528.959859,
+      "seconds": 87.65147771599914,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 2,
+      "solver": "ga",
+      "total_usd": 8232640708.414302,
+      "seconds": 100.18738584299899,
+      "feasible": true,
+      "decision_slots": 1000
+    },
+    {
+      "vessel_count": 200,
+      "seed": 2,
+      "solver": "qiea",
+      "total_usd": 8251884246.98871,
+      "seconds": 86.18666018999829,
+      "feasible": true,
+      "decision_slots": 1000
+    }
+  ],
+  "summary": [
+    {
+      "vessel_count": 100,
+      "decision_slots": 500,
+      "solver": "ga",
+      "runs": 3,
+      "median_seconds": 19.851944326999728,
+      "median_total_usd": 4114586775.909471,
+      "best_total_usd": 4088699830.3975525,
+      "gap_to_best_observed_fraction": 0.0006627877615708792,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 100,
+      "decision_slots": 500,
+      "solver": "qiea",
+      "runs": 3,
+      "median_seconds": 21.4791236150013,
+      "median_total_usd": 4102634678.84212,
+      "best_total_usd": 4085991685.114778,
+      "gap_to_best_observed_fraction": 0.0,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 200,
+      "decision_slots": 1000,
+      "solver": "ga",
+      "runs": 3,
+      "median_seconds": 87.01141405499948,
+      "median_total_usd": 8180437500.060583,
+      "best_total_usd": 8174322525.941034,
+      "gap_to_best_observed_fraction": 0.00012765783459913217,
+      "all_runs_feasible": true
+    },
+    {
+      "vessel_count": 200,
+      "decision_slots": 1000,
+      "solver": "qiea",
+      "runs": 3,
+      "median_seconds": 86.93399814300028,
+      "median_total_usd": 8176446528.959859,
+      "best_total_usd": 8173279142.824087,
+      "gap_to_best_observed_fraction": 0.0,
+      "all_runs_feasible": true
+    }
+  ],
+  "claim": "This synthetic shared-start scaling check isolates solver behavior after one identical feasible anchor. It does not establish an exact optimality gap beyond the enumerated one-slot reference."
+}

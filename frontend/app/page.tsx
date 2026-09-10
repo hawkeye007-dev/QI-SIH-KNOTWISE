@@ -1,555 +1,99 @@
 'use client';
 
-import React, { useEffect, useState, useMemo, useRef } from 'react';
-import { DemoData, VesselYearGene } from '@/types/demo';
-import { ScenarioSlider } from '@/components/ScenarioSlider';
+import Link from 'next/link';
+import { ArrowRightIcon, ArrowDownRightIcon } from '@phosphor-icons/react';
+import { DataGate } from '@/components/DataGate';
+import { PriceControl } from '@/components/PriceControl';
 import { MapView } from '@/components/MapView';
-import { MatrixModal } from '@/components/MatrixModal';
-import { ExposureModal } from '@/components/ExposureModal';
-import { CostCurveModal } from '@/components/CostCurveModal';
-import { GuideModal } from '@/components/GuideModal';
-import { QuantumModal } from '@/components/QuantumModal';
-import { PredictorModal } from '@/components/PredictorModal';
+import { OverviewFuelMix } from '@/components/OverviewFuelMix';
+import { useAtlas } from '@/lib/AtlasContext';
+import { DemoData } from '@/types/demo';
+import { climateDelta, deepestCut, fuelMixByPrice } from '@/lib/planAnalytics';
+import { inrCrore, ktCO2e, kTonnes, pct, signedPct, usdM } from '@/lib/format';
+import styles from './overview.module.css';
 
-export default function Home() {
-  const [data, setData] = useState<DemoData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [scenarioId, setScenarioId] = useState('approved_text');
-  const [price, setPrice] = useState(175);
-
-  // Modal Overlay States
-  const [isMatrixOpen, setIsMatrixOpen] = useState(false);
-  const [isExposureOpen, setIsExposureOpen] = useState(false);
-  const [isCostCurveOpen, setIsCostCurveOpen] = useState(false);
-  const [isGuideOpen, setIsGuideOpen] = useState(false);
-  const [isQuantumOpen, setIsQuantumOpen] = useState(false);
-  const [isPredictorOpen, setIsPredictorOpen] = useState(false);
-
-  // Reallocation Notification Toast State
-  const [notification, setNotification] = useState<string | null>(null);
-  const prevPriceRef = useRef(price);
-  const notificationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Shared by the price-change toast and any manually-triggered one (e.g.
-  // clicking a proposal with no computed price) so a new notification
-  // always resets the dismiss timer instead of racing a previous one.
-  const showNotification = (text: string, durationMs = 3500) => {
-    if (notificationTimerRef.current) clearTimeout(notificationTimerRef.current);
-    setNotification(text);
-    notificationTimerRef.current = setTimeout(() => setNotification(null), durationMs);
-  };
-
-  useEffect(() => {
-    fetch('/demo_data.json')
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-      .then((d: DemoData) => { setData(d); setLoading(false); })
-      .catch(e => { setError(e.message); setLoading(false); });
-  }, []);
-
-  const unstableKeys = useMemo(() => {
-    const s = new Set<string>();
-    if (data) {
-      data.exposure.unstable_decisions?.decisions?.forEach(d => {
-        s.add(`${d.vessel_id}:${d.year}:${d.decision}`);
-      });
-    }
-    return s;
-  }, [data]);
-
-  const gridPoints = data?.sweep.grid_points ?? [];
-
-  const closest = useMemo(() => {
-    if (gridPoints.length === 0) return null;
-    return gridPoints.reduce((p, c) =>
-      Math.abs(c.price_usd_per_tco2e - price) < Math.abs(p.price_usd_per_tco2e - price) ? c : p
-    );
-  }, [gridPoints, price]);
-
-  // What re-planning is worth at this price: the $0/t plan re-costed here
-  // without ever being revised, minus this price's re-optimized plan
-  // (sweep.compute_baseline_counterfactual). This is the comparison that
-  // carries a direction -- bigger is better, always. Total cost against the
-  // $0/t *baseline* does not: a carbon price costs money however well the
-  // fleet is planned, so that difference measures the regulation, not the
-  // optimizer, and colouring it good/bad was misleading.
-  const counterfactual = useMemo(() => {
-    const points = data?.sweep.baseline_counterfactual?.points ?? [];
-    if (points.length === 0) return null;
-    return points.reduce((p, c) =>
-      Math.abs(c.price_usd_per_tco2e - price) < Math.abs(p.price_usd_per_tco2e - price) ? c : p
-    );
-  }, [data, price]);
-
-  const currentConfig: VesselYearGene[] = closest?.configuration ?? [];
-  const baselineConfig: VesselYearGene[] = gridPoints.length > 0 ? gridPoints[0].configuration : [];
-
-  // Cargo demand satisfaction (PS hard constraint) -- not a separate
-  // backend computation, just the same demand_shortfall_penalty inputs
-  // (routes[route].min_capacity_dwt_required, vessel_class_defaults[band]
-  // .dwt_tonnes) the objective already enforces, cross-referenced against
-  // the current plan's own route_id assignments per vessel-year.
-  const cargoDemand = useMemo(() => {
-    if (!data) return [];
-    const bandByVessel = new Map(data.fleet.vessels.map(v => [v.vessel_id, v.band]));
-    const dwtByBand: Record<string, number> = {};
-    Object.entries(data.fleet.vessel_class_defaults).forEach(([band, def]: [string, any]) => {
-      dwtByBand[band] = def.dwt_tonnes;
-    });
-    return Object.entries(data.fleet.routes).map(([routeId, route]: [string, any]) => {
-      const requiredDwt = route.min_capacity_dwt_required;
-      const years = [2026, 2027, 2028, 2029, 2030];
-      let minAssignedDwt = Infinity;
-      const yearsShort: number[] = [];
-      years.forEach(year => {
-        const assignedDwt = currentConfig
-          .filter(g => g.route_id === routeId && g.year === year)
-          .reduce((sum, g) => sum + (dwtByBand[bandByVessel.get(g.vessel_id) ?? ''] ?? 0), 0);
-        minAssignedDwt = Math.min(minAssignedDwt, assignedDwt);
-        if (assignedDwt < requiredDwt) yearsShort.push(year);
-      });
-      return {
-        routeId,
-        requiredDwt,
-        minAssignedDwt: minAssignedDwt === Infinity ? 0 : minAssignedDwt,
-        yearsShort,
-      };
-    });
-  }, [data, currentConfig]);
-
-  // Active flips count at current price
-  const activeFlips = useMemo(() => {
-    if (!data) return [];
-    return data.sweep.switching_points.filter(
-      sp => price >= sp.price_low_usd_per_tco2e && price <= sp.price_high_usd_per_tco2e
-    );
-  }, [data, price]);
-
-  // Distinct vessels among those active flips (real, price-dependent -- not
-  // a static count: this is 0 at $0/t when nothing has flipped yet, and 0
-  // again above the highest price any switching point was found at, once
-  // the plan has settled into its final configuration).
-  const flippedVesselCount = useMemo(() => new Set(activeFlips.map(f => f.vessel_id)).size, [activeFlips]);
-  const highestSwitchingPrice = useMemo(() => {
-    const points = data?.sweep.switching_points ?? [];
-    return points.length > 0 ? Math.max(...points.map(sp => sp.price_high_usd_per_tco2e)) : null;
-  }, [data]);
-  const planHasStabilized = highestSwitchingPrice !== null && price > highestSwitchingPrice;
-
-  // Monitor price changes and trigger notification toast
-  useEffect(() => {
-    if (!data) return;
-    if (prevPriceRef.current !== price) {
-      prevPriceRef.current = price;
-      if (activeFlips.length > 0) {
-        showNotification(`Strategy Reallocation: ${activeFlips.length} vessel elections updated at $${price}/tCO₂e`);
-      } else {
-        showNotification(`Strategy Baseline: Fleet plans stable at $${price}/tCO₂e`);
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [price, data, activeFlips]);
-
-  if (loading) return (
-    <div className="h-screen w-screen bg-black flex flex-col items-center justify-center text-neutral-400 font-mono text-xs">
-      <div className="w-6 h-6 border border-white border-t-transparent rounded-full animate-spin mb-3" />
-      <span>LOADING KNOTWISE COMPLIANCE ATLAS...</span>
-    </div>
-  );
-
-  if (error || !data) return (
-    <div className="h-screen w-screen bg-black flex items-center justify-center p-6">
-      <div className="bg-neutral-950 border border-neutral-800 p-6 rounded-xl max-w-sm text-center">
-        <div className="text-sm font-mono text-red-400 mb-2">DATA FILE NOT FOUND</div>
-        <p className="text-xs text-neutral-400 mb-4 font-sans">
-          Could not load demo_data.json.
-        </p>
-        <button onClick={() => location.reload()} className="px-4 py-1.5 bg-white text-black font-semibold text-xs rounded">
-          Retry Connection
-        </button>
-      </div>
-    </div>
-  );
-
-  const ps = data.exposure.plan_spread;
-  const totalCostUsd = closest ? closest.total_usd : 0;
-  const usdM = (v: number) => `$${(v / 1e6).toFixed(2)}M`;
-  const predictorBenchmark = data.fuel_predictor_benchmark;
-  const predictorImprovementPct =
-    predictorBenchmark.available && predictorBenchmark.physics_only_mape_percent > 0
-      ? ((predictorBenchmark.physics_only_mape_percent - predictorBenchmark.best_arm_mape_percent) /
-          predictorBenchmark.physics_only_mape_percent) *
-        100
-      : 0;
-  // Real, measured dollar gap between the quantum-inspired search and a
-  // naive (uniform-prior) search at the same budget, before either is
-  // refined -- the money version of the "Search Advantage" percentage
-  // above, not a separate/different comparison.
-  const optimizerBenchmark = data.optimizer_benchmark;
-  const optimizerMoneySavedInr = optimizerBenchmark.available
-    ? (optimizerBenchmark.search_attribution.raw_search_polish_disabled.uniform_init.mean_total_usd -
-        optimizerBenchmark.search_attribution.raw_search_polish_disabled.mean_field_init.mean_total_usd) *
-      data.exposure.fx.usd_to_inr_rate
-    : 0;
-
+function HomeContent({ data }: { data: DemoData }) {
+  const { price, currentConfig, baselineConfig, closest, counterfactual, scaleSummary } = useAtlas();
+  const cut = deepestCut(data);
+  const baseline = data.sweep.grid_points.find(point => point.price_usd_per_tco2e === 0);
+  const mix = fuelMixByPrice(data);
+  const baselineMix = mix.find(point => point.price === 0);
+  const deepestMix = cut ? mix.find(point => point.price === cut.point.price_usd_per_tco2e) : null;
+  const delta = climateDelta(data, closest);
+  const predictor = data.fuel_predictor_benchmark;
 
   return (
-    <div className="min-h-screen bg-black text-neutral-200 flex flex-col font-sans relative">
-      {/* Notification Toast -- strategy reallocations on price change, or a
-          "why is this N/A" explanation when a no-price proposal is clicked */}
-      {notification && (
-        <div className="fixed bottom-6 right-6 z-[1000] max-w-sm bg-neutral-900 border border-neutral-700 px-4 py-3 rounded-lg shadow-2xl flex items-start gap-3">
-          <span className="w-2 h-2 mt-1 rounded-full bg-white animate-ping shrink-0" />
-          <span className="text-xs font-mono text-white font-medium leading-relaxed">{notification}</span>
-        </div>
-      )}
-
-      {/* Top Header */}
-      <header className="border-b border-neutral-800 bg-neutral-950 px-6 py-3 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-50">
-        <div className="flex items-center gap-3">
-          <span className="font-mono font-bold text-sm tracking-widest text-white">KNOTWISE</span>
-          <span className="text-neutral-700">|</span>
-          <span className="text-xs font-mono text-neutral-400">Fleet Regulatory Risk Atlas</span>
-        </div>
-
-        <div className="flex items-center gap-3">
-          {/* Docs / Guide Button */}
-          <button
-            onClick={() => setIsGuideOpen(true)}
-            className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-neutral-500 text-xs font-mono text-white rounded transition-all flex items-center gap-1.5"
-          >
-            <span>📖</span>
-            <span>Docs / Platform Guide</span>
-          </button>
-          <button
-            onClick={() => setIsQuantumOpen(true)}
-            title="Benchmarked against a quantum-inspired QIEA solver — open for the head-to-head and what it buys"
-            className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-emerald-700 text-xs font-mono text-white rounded transition-all flex items-center gap-1.5"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-            <span>Solver: {data.metadata.optimizer.toUpperCase()} · QIEA-benchmarked</span>
-          </button>
-          <button
-            onClick={() => setIsPredictorOpen(true)}
-            title="Fuel-consumption prediction accuracy"
-            className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 hover:border-emerald-700 text-xs font-mono text-white rounded transition-all flex items-center gap-1.5"
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
-            <span>Fuel Prediction</span>
-          </button>
-          <span className="tag">IMO 4 Dec 2026 Vote</span>
-        </div>
-      </header>
-
-      {/* Main Dashboard Content */}
-      <main className="flex-1 p-4 sm:p-6 max-w-[1600px] w-full mx-auto space-y-4">
-        {/* Scenario Slider */}
-        <ScenarioSlider
-          currentPrice={price}
-          onPriceChange={setPrice}
-          activeScenarioId={scenarioId}
-          onScenarioSelect={setScenarioId}
-          ticks={data.sweep.scenario_ticks}
-          switchingPoints={data.sweep.switching_points}
-          onNoPriceClick={(label, reason) => showNotification(`${label} has no price on this axis: ${reason}`, 6000)}
-        />
-
-        {/* Dashboard Content Grid -- stretch (default), not items-start:
-            the map now grows to match the right column's real height
-            instead of leaving empty space below a fixed-height map when
-            the three cards stack taller than it. */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {/* Left Column: Interactive Leaflet Map */}
-          <div className="lg:col-span-2 flex flex-col">
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-xs font-mono font-semibold uppercase text-white">
-                Global Trade Lanes & Active Vessels
-              </span>
-              <span className="text-[11px] font-mono text-neutral-400">
-                Interactive Map • Scroll/Buttons to Zoom
-              </span>
-            </div>
-            <div className="flex-1 min-h-0">
-              <MapView
-                routesGeo={data.routes_geo}
-                currentConfig={currentConfig}
-                baselineConfig={baselineConfig}
-                vessels={data.fleet.vessels}
-              />
-            </div>
+    <main className={styles.overview}>
+      <div className={styles.masthead}><span>Fleet intelligence / Overview</span><span>SIH26138 · Egreen Quanta</span></div>
+      <section className={styles.hero} aria-labelledby="overview-title">
+        <header className={styles.intro}>
+          <p className={styles.eyebrow}>Quantum-inspired green fleet optimization</p>
+          <h1 id="overview-title">A cleaner fleet.<br />A calculated decision.</h1>
+          <p className={styles.lead}>Choose the fuel, speed, route and shore power that move your fleet forward. Understand the cost of cutting emissions before committing to a plan.</p>
+          <div className={styles.actions}>
+            <Link href="/plans" className={styles.primary}>Compare fleet plans <ArrowRightIcon size={18} /></Link>
+            <a href="#explore" className={styles.textLink}>Explore the results <ArrowDownRightIcon size={18} /></a>
           </div>
-
-          {/* Right Column: Key Metrics & Modal Overlay Buttons */}
-          <div className="lg:col-span-1 space-y-4">
-            {/* Card 1: Regulatory Risk Spread */}
-            <div className="metric-card">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
-                  Cost Variance Across Regulations
-                </span>
-                <span className="tag font-mono">Financial Risk</span>
-              </div>
-              <div className="text-2xl font-mono font-bold text-white mt-1">
-                ₹{(ps.spread_inr / 1e7).toFixed(1)} Crore
-              </div>
-              <div className="text-xs font-mono text-neutral-400 mt-0.5">
-                ${(ps.spread_usd / 1e6).toFixed(2)}M USD Plan Cost Variance
-              </div>
-              <p className="text-[11px] text-neutral-400 mt-2 font-sans">
-                ₹{(ps.spread_inr / 1e7).toFixed(1)} Cr of fleet cost rides on how the Dec 4 IMO vote lands
-                ({ps.min_scenario_id} vs {ps.max_scenario_id}) — see exactly which decisions carry that bet.
-              </p>
-              <button
-                onClick={() => setIsExposureOpen(true)}
-                className="mt-3 w-full py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-xs font-mono text-white rounded transition-all flex items-center justify-between px-3"
-              >
-                <span>View Exposure & Risk Atlas</span>
-                <span>➔</span>
-              </button>
+          <dl className={styles.scope}>
+            <div><dt>Fleet</dt><dd>{data.fleet.vessels.length} vessels</dd></div>
+            <div><dt>Planning horizon</dt><dd>2026–2030</dd></div>
+            <div><dt>Regulatory coverage</dt><dd>4 regimes</dd></div>
+          </dl>
+        </header>
+        <aside className={styles.result} aria-label="Best emissions result in the carbon-price sweep">
+          <div className={styles.resultHeading}><span>Measured fleet outcome</span><span>Five-year total</span></div>
+          {cut && baseline?.metrics && cut.point.metrics ? <>
+            <div className={styles.resultNumber}>{signedPct(cut.deltaFraction)}<ArrowDownRightIcon size={38} weight="light" /></div>
+            <h2>Lifecycle greenhouse gas emissions</h2>
+            <p>{ktCO2e(Math.abs(cut.deltaTco2e))} less than the fleet plan at $0/t.</p>
+            <div className={styles.comparison}>
+              <div className={styles.barLabel}><span>Baseline / $0 per tonne</span><strong>{ktCO2e(baseline.metrics.lifecycle_emissions_tco2e)}</strong></div>
+              <div className={styles.barTrack}><span style={{width: '100%'}} /></div>
+              <div className={styles.barLabel}><span>Lowest emissions / ${cut.point.price_usd_per_tco2e} per tonne</span><strong>{ktCO2e(cut.point.metrics.lifecycle_emissions_tco2e)}</strong></div>
+              <div className={styles.barTrack}><span className={styles.cleanBar} style={{width: `${cut.point.metrics.lifecycle_emissions_tco2e / baseline.metrics.lifecycle_emissions_tco2e * 100}%`}} /></div>
             </div>
+            <Link href="/sensitivity" className={styles.resultLink}>Inspect the carbon-price sweep <ArrowRightIcon size={17} /></Link>
+          </> : <p>Emissions comparison is unavailable in this dataset.</p>}
+        </aside>
+      </section>
 
-            {/* Card 2: Strategy Reallocations */}
-            <div className="metric-card">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
-                  Vessels Modifying Strategy
-                </span>
-                <span className={`tag font-mono ${flippedVesselCount === 0 ? 'text-emerald-400 border-emerald-800' : ''}`}>
-                  {flippedVesselCount === 0 ? 'Stable' : `${activeFlips.length} Reallocations`}
-                </span>
-              </div>
-              <div className={`text-2xl font-mono font-bold mt-1 ${flippedVesselCount === 0 ? 'text-emerald-400' : 'text-white'}`}>
-                {flippedVesselCount === 0
-                  ? 'Plan Fully Locked In ✓'
-                  : <>{flippedVesselCount} Vessel{flippedVesselCount === 1 ? '' : 's'} • at ${price}/t</>}
-              </div>
-              <div className="text-xs text-neutral-400 mt-0.5 font-sans">
-                {planHasStabilized
-                  ? `No fuel, speed, route, or shore-power switch beats the current plan above $${highestSwitchingPrice}/t — every vessel has already found its optimal strategy.`
-                  : flippedVesselCount === 0
-                  ? `Every vessel's current strategy already beats switching, at exactly $${price}/t.`
-                  : 'Changes in fuel, speed, assigned routes, and shore power.'}
-              </div>
-              <button
-                onClick={() => setIsMatrixOpen(true)}
-                className="mt-3 w-full py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-xs font-mono text-white rounded transition-all flex items-center justify-between px-3"
-              >
-                <span>Open Fleet Decision Matrix</span>
-                <span>➔</span>
-              </button>
-            </div>
+      <section className={styles.proofStrip} aria-label="Supporting results">
+        <Link href="/fuels"><span className={styles.eyebrow}>Fuel transition</span><strong>{baselineMix && deepestMix && baselineMix.totalSlots > 0 && deepestMix.totalSlots > 0 ? `${pct(baselineMix.lowCarbonSlots / baselineMix.totalSlots, 0)} → ${pct(deepestMix.lowCarbonSlots / deepestMix.totalSlots, 0)}` : 'Unavailable'}</strong><span>Low-carbon vessel-years, baseline to lowest-emissions plan <ArrowRightIcon size={16} /></span></Link>
+        <Link href="/engine"><span className={styles.eyebrow}>Solver advantage</span><strong>{scaleSummary ? `${pct(scaleSummary.minGainFraction)}–${pct(scaleSummary.maxGainFraction)}` : 'Unavailable'}</strong><span>Lower cost than a classical genetic algorithm at matched compute <ArrowRightIcon size={16} /></span></Link>
+        <Link href="/exposure"><span className={styles.eyebrow}>Regulatory exposure</span><strong>{inrCrore(data.exposure.plan_spread.spread_inr)}</strong><span>Fleet cost spread across regulatory scenarios <ArrowRightIcon size={16} /></span></Link>
+      </section>
 
-            {/* Card 3: Total Fleet Expenditure */}
-            <div className="metric-card">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
-                  Total Fleet Expenditure
-                </span>
-                <span className="tag font-mono">Current Carbon Price</span>
-              </div>
-              <div className="text-2xl font-mono font-bold text-white mt-1">
-                ${(totalCostUsd / 1e6).toFixed(2)}M USD
-              </div>
-              {counterfactual && counterfactual.saving_usd > 0 ? (
-                <div className="text-xs font-mono font-semibold mt-0.5 text-emerald-400">
-                  ▼ {usdM(counterfactual.saving_usd)} saved by re-planning
-                </div>
-              ) : (
-                <div className="text-xs font-mono font-semibold mt-0.5 text-neutral-500">
-                  — no re-planning gain yet at this price
-                </div>
-              )}
-              <div className="text-xs text-neutral-400 mt-0.5 font-sans">
-                {counterfactual && counterfactual.saving_usd > 0
-                  ? `Keeping the $0/t plan and simply paying the carbon price would cost ${usdM(
-                      counterfactual.frozen_total_usd
-                    )} at $${price}/t. Re-optimizing fuel, speed, routes and shore power brings it down to ${usdM(
-                      counterfactual.optimized_total_usd
-                    )}.`
-                  : `At $${price}/t the carbon price is still too low to make any fuel, speed, route or shore-power switch pay for itself — the optimal plan is the same one you'd run at $0/t.`}
-              </div>
-              <button
-                onClick={() => setIsCostCurveOpen(true)}
-                className="mt-3 w-full py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-xs font-mono text-white rounded transition-all flex items-center justify-between px-3"
-              >
-                <span>Open Sensitivity Curve</span>
-                <span>➔</span>
-              </button>
-            </div>
-          </div>
+      <section id="explore" className={styles.explore} aria-labelledby="explore-title">
+        <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>The decision in motion</p><h2 id="explore-title">What changes when carbon has a price?</h2></div><p>Explore {data.sweep.grid_points.length} precomputed fleet plans. Each price point reconsiders fuel, speed, routes and shore power.</p></div>
+        <div className={styles.controls}><PriceControl /></div>
+        <div className={styles.analysis}>
+          <div className={styles.fuelChart}><div className={styles.chartHeading}><h3>The fleet’s fuel mix</h3><Link href="/fuels" className={styles.textLink}>Fuel analysis <ArrowRightIcon size={16} /></Link></div><p>Fuel choices at the selected price, compared with the $0 baseline.</p><OverviewFuelMix data={data} /></div>
+          <aside className={styles.selected} aria-label="Selected plan outcome">
+            <p className={styles.eyebrow}>Selected plan / ${closest?.price_usd_per_tco2e ?? price} per tCO₂e</p>
+            {delta && closest ? <><h3>{ktCO2e(delta.emissionsTco2e)}</h3><p className={styles.delta}>{signedPct(delta.emissionsDeltaFraction)} emissions vs. the $0/t plan</p><dl><div><dt>Five-year fleet cost</dt><dd>{usdM(closest.total_usd)}</dd></div><div><dt>Low-carbon vessel-years</dt><dd>{pct(delta.lowCarbonShare, 0)}</dd></div><div><dt>Bunker mass</dt><dd>{kTonnes(delta.fuelTonnes)}</dd></div></dl>{delta.fuelDeltaFraction > 0.01 && <p className={styles.note}>Cleaner fuels can require more tonnes because their energy density is lower. Lifecycle emissions measure the climate outcome.</p>}</> : <p>Plan metrics are unavailable.</p>}
+            {counterfactual && <div className={styles.saving}><span>Value of re-planning</span><strong>{usdM(Math.max(0, counterfactual.saving_usd))}</strong><p>Saved against keeping the $0/t plan and paying the carbon bill at ${counterfactual.price_usd_per_tco2e}/t.</p></div>}
+            <Link href="/fleet-matrix" className={styles.textLink}>Inspect vessel decisions <ArrowRightIcon size={16} /></Link>
+          </aside>
         </div>
+      </section>
 
-        {/* Optimizer band -- the one place on this site that talks about how the
-            plan was solved. Full-width rather than a 4th right-column card: the
-            three cards already match the map's height. Every figure reads live
-            from optimizer_benchmark, which build_demo_data.py embeds from
-            scripts/benchmark_optimizers.py. */}
-        {data.optimizer_benchmark.available && (
-          <div className="metric-card">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex-1 min-w-[240px]">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
-                    Quantum-Inspired Optimizer
-                  </span>
-                </div>
-                <p className="text-[11px] text-neutral-400 font-sans max-w-2xl leading-relaxed">
-                  A quantum-inspired search strategy was benchmarked against our classical solver on this fleet —
-                  it finds stronger candidate plans up front, and both methods converge on the same optimal
-                  solution after refinement.
-                </p>
-              </div>
+      <section className={styles.network} aria-labelledby="network-title">
+        <div className={styles.sectionHeading}><div><p className={styles.eyebrow}>From fleet to vessel</p><h2 id="network-title">Every decision has a route.</h2></div><p>Explore 2028 route assignments. Highlighted vessels have a different strategy from the $0/t plan. Positions are illustrative.</p></div>
+        <MapView routesGeo={data.routes_geo} currentConfig={currentConfig} baselineConfig={baselineConfig} vessels={data.fleet.vessels} />
+      </section>
 
-              <div className="flex flex-wrap items-stretch gap-6">
-                <div>
-                  <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
-                    Search Advantage
-                  </div>
-                  <div className="text-2xl font-mono font-bold text-emerald-400">
-                    +{Math.abs(data.optimizer_benchmark.search_attribution.raw_search_improvement_fraction * 100).toFixed(1)}%
-                  </div>
-                  <div className="text-[10px] font-mono text-neutral-500">cheaper before refinement</div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
-                    Search-Quality Value
-                  </div>
-                  <div className="text-2xl font-mono font-bold text-emerald-400">
-                    ₹{(optimizerMoneySavedInr / 1e7).toFixed(0)} Cr
-                  </div>
-                  <div className="text-[10px] font-mono text-neutral-500">
-                    ablation only, pre-polish — not the fleet&apos;s deployed savings
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
-                    Shipped plan
-                  </div>
-                  <div className="text-xl font-mono font-bold text-white">
-                    {data.optimizer_benchmark.demo_built_with_optimizer.toUpperCase()}
-                  </div>
-                  <div className="text-[10px] font-mono text-neutral-500">
-                    equivalent to QIEA here — see benchmark
-                  </div>
-                </div>
-                <button
-                  onClick={() => setIsQuantumOpen(true)}
-                  className="self-center px-4 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-xs font-mono text-white rounded transition-all flex items-center gap-2 whitespace-nowrap"
-                >
-                  <span>Open Solver Benchmark</span>
-                  <span>➔</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Fuel-predictor band -- the one place on this site that talks about
-            fuel-consumption PREDICTION (PS Objective 1) as distinct from
-            fleet OPTIMIZATION. Every figure reads live from
-            fuel_predictor_benchmark, which build_demo_data.py embeds from
-            scripts/benchmark_fuel_predictor.py. */}
-        {data.fuel_predictor_benchmark.available && (
-          <div className="metric-card">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="flex-1 min-w-[240px]">
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-[10px] font-mono uppercase text-neutral-400 tracking-wider">
-                    Fuel Consumption Prediction
-                  </span>
-                </div>
-                <p className="text-[11px] text-neutral-400 font-sans max-w-2xl leading-relaxed">
-                  Machine-learning and tensor-inspired models predict fuel burn more accurately than
-                  physics-only estimation, validated across every vessel in the fleet.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-stretch gap-6">
-                <div>
-                  <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
-                    Accuracy Gain
-                  </div>
-                  <div className="text-xl font-mono font-bold text-emerald-400">
-                    +{predictorImprovementPct.toFixed(0)}%
-                  </div>
-                  <div className="text-[10px] font-mono text-neutral-500">vs. physics-only</div>
-                </div>
-                <div>
-                  <div className="text-[10px] font-mono uppercase text-neutral-500 tracking-wider mb-1">
-                    Best Model
-                  </div>
-                  <div className="text-xl font-mono font-bold text-white">
-                    {predictorBenchmark.available ? predictorBenchmark.best_arm.replace('_', '-').toUpperCase() : ''}
-                  </div>
-                  <div className="text-[10px] font-mono text-emerald-400 font-semibold">
-                    {predictorBenchmark.available ? (100 - predictorBenchmark.best_arm_mape_percent).toFixed(1) : ''}% accurate
-                  </div>
-                </div>
-                <button
-                  onClick={() => setIsPredictorOpen(true)}
-                  className="self-center px-4 py-2 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 text-xs font-mono text-white rounded transition-all flex items-center gap-2 whitespace-nowrap"
-                >
-                  <span>Open Prediction Benchmark</span>
-                  <span>➔</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </main>
-
-      {/* Footer */}
-      <footer className="border-t border-neutral-900 bg-neutral-950 px-6 py-3 flex flex-wrap items-center justify-between gap-2 text-[10px] font-mono text-neutral-500 mt-auto">
-        <div>KNOTWISE REGULATORY ATLAS • GLOBAL MERCHANT FLEET</div>
-        <div>PRECOMPUTED DETERMINISTIC DECISION TREE</div>
-      </footer>
-
-      {/* Modal Popup Overlays */}
-      <MatrixModal
-        isOpen={isMatrixOpen}
-        onClose={() => setIsMatrixOpen(false)}
-        currentConfig={currentConfig}
-        baselineConfig={baselineConfig}
-        unstableKeys={unstableKeys}
-        vessels={data.fleet.vessels}
-        currentPrice={price}
-        cargoDemand={cargoDemand}
-        fuels={data.fleet.fuel_properties.fuels}
-      />
-
-      <ExposureModal
-        isOpen={isExposureOpen}
-        onClose={() => setIsExposureOpen(false)}
-        exposure={data.exposure}
-      />
-
-      <CostCurveModal
-        isOpen={isCostCurveOpen}
-        onClose={() => setIsCostCurveOpen(false)}
-        gridPoints={gridPoints}
-        currentPrice={price}
-        tier2PriceUsdPerTco2e={
-          data.sweep.scenario_ticks.find(t => t.scenario_id === 'approved_text')?.high_usd_per_tco2e ?? null
-        }
-      />
-
-      <QuantumModal
-        isOpen={isQuantumOpen}
-        onClose={() => setIsQuantumOpen(false)}
-        benchmark={data.optimizer_benchmark}
-      />
-
-      <PredictorModal
-        isOpen={isPredictorOpen}
-        onClose={() => setIsPredictorOpen(false)}
-        benchmark={data.fuel_predictor_benchmark}
-      />
-
-      <GuideModal
-        isOpen={isGuideOpen}
-        onClose={() => setIsGuideOpen(false)}
-        data={data}
-      />
-    </div>
+      <section className={styles.method} aria-labelledby="method-title">
+        <div className={styles.methodIntro}><p className={styles.eyebrow}>Behind the decisions</p><h2 id="method-title">Engineering you can interrogate.</h2><p>Predict fuel consumption. Search fleet-wide decisions. Evaluate each plan against IMO NZF, CII, FuelEU Maritime and EU ETS.</p><Link href="/guide" className={styles.textLink}>How to read the platform <ArrowRightIcon size={16} /></Link></div>
+        <div className={styles.evidenceList}>
+          <Link href="/prediction"><div><span className={styles.eyebrow}>Fuel consumption prediction</span><h3>{predictor.available ? `${predictor.best_arm_mape_percent.toFixed(2)}% mean prediction error` : 'Explore the prediction models'}</h3><p>Four models evaluated by holding out an entire vessel at a time. Each test ship is unseen during training.</p></div><ArrowRightIcon size={22} /></Link>
+          <Link href="/engine"><div><span className={styles.eyebrow}>Quantum-inspired optimization</span><h3>{scaleSummary ? `Lower cost in ${scaleSummary.totalWins} of ${scaleSummary.totalRuns} paired runs` : 'Explore the solver benchmark'}</h3><p>{scaleSummary ? `Benchmarked on ${scaleSummary.smallestFleet}–${scaleSummary.largestFleet} vessels with matched population, generations and polish budget.` : 'Compare the quantum-inspired search with a classical genetic algorithm.'}</p></div><ArrowRightIcon size={22} /></Link>
+        </div>
+      </section>
+      <div className={styles.closing}><p>See the trade-off. Choose the plan.</p><Link href="/plans" className={styles.primary}>Compare the three fleet plans <ArrowRightIcon size={18} /></Link></div>
+    </main>
   );
+}
+
+export default function Home() {
+  return <DataGate>{data => <HomeContent data={data} />}</DataGate>;
 }

@@ -120,8 +120,19 @@ def vessel_year_born_machine(
             trial_genome = baseline_genome[:slot_index] + [trial_gene] + baseline_genome[slot_index + 1 :]
             costs[r_index, c_index] = evaluate(trial_genome, fleet, regulations, prices, cache=cache).total_usd
 
+    finite_costs = costs[np.isfinite(costs)]
+    if finite_costs.size == 0:
+        raise ValueError(
+            f"no cargo-feasible choices found while evaluating {vessel_id}/{year}; "
+            "the baseline genome violates the fleet demand invariant"
+        )
+
     if temperature is None:
-        temperature = float(np.std(costs))
+        # Infeasible route reassignments are intentionally +∞ after demand
+        # became a hard constraint. They are excluded from this scale and
+        # receive zero probability below, rather than letting ∞ − ∞ turn an
+        # otherwise valid Born-machine tensor into NaNs.
+        temperature = float(np.std(finite_costs))
         if temperature <= 0.0:
             # Every enumerated config costs the same for this slot -- no
             # information to weight by; fall back to a flat distribution
@@ -132,7 +143,13 @@ def vessel_year_born_machine(
     per_scenario_probs = np.empty_like(costs)
     for r_index in range(len(scenario_ids)):
         row = costs[r_index]
-        weights = np.exp(-(row - row.min()) / temperature)
+        feasible = np.isfinite(row)
+        if not feasible.any():
+            raise ValueError(
+                f"no cargo-feasible choices found for {vessel_id}/{year} under scenario {scenario_ids[r_index]}"
+            )
+        weights = np.zeros_like(row)
+        weights[feasible] = np.exp(-(row[feasible] - row[feasible].min()) / temperature)
         per_scenario_probs[r_index] = weights / weights.sum()
 
     joint = per_scenario_probs / len(scenario_ids)  # uniform P(r) = 1/K

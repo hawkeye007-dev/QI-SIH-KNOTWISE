@@ -13,7 +13,7 @@ an earlier draft of this model had it inverted):
 
 - `daily_energy_mj` — **V³** (the Admiralty power law itself).
 - `fuel_consumption_tonnes` (the full annual figure, at a route's fixed
-  `distance_nm`) — **V²**: covering a fixed distance faster means fewer sea
+  `annual_transit_distance_nm`) — **V²**: covering a fixed distance faster means fewer sea
   days, which partially offsets the V³ daily rate
   (`daily_energy(V) * (distance/(24V))` = `... * V**2`). Monotonically
   increasing in speed either way — it's `objective.py`'s per-sea-day charter
@@ -40,11 +40,19 @@ def sea_days(fleet: dict[str, Any], route_id: str, speed_knots: float) -> float:
     per-sea-day charter-premium term (Task 2R component 3 correction 2) —
     one formula, not duplicated across the two.
     """
-    return fleet["routes"][route_id]["distance_nm"] / (24 * speed_knots)
+    return fleet["routes"][route_id]["annual_transit_distance_nm"] / (24 * speed_knots)
 
 
 class FuelModel(Protocol):
     """Mandatory interface — any fuel model (physics, learned, hybrid) implements this."""
+
+    def daily_energy_mj(
+        self, vessel: dict[str, Any], fleet: dict[str, Any], speed_knots: float
+    ) -> float: ...
+
+    def annual_energy_mj(
+        self, vessel: dict[str, Any], fleet: dict[str, Any], speed_knots: float, route_id: str
+    ) -> float: ...
 
     def fuel_consumption_tonnes(
         self,

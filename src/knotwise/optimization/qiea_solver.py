@@ -139,8 +139,10 @@ import statistics
 from dataclasses import dataclass, field
 from typing import Any
 
-from knotwise.optimization.genome import Genome, VesselYearGene, field_domains
+from knotwise.optimization.genome import Genome, VesselYearGene, field_domains, repair_capacity_coverage
+from knotwise.optimization.fuel_model import FuelModel
 from knotwise.optimization.objective import ObjectiveCache, evaluate, slot_local_total_usd
+from knotwise.optimization.scoring import PlanScorer
 from knotwise.optimization.solver import (
     DEGENERATE_COST_TOLERANCE_USD,
     SolverResult,
@@ -223,6 +225,7 @@ def _slot_cost_tables(
     regulations: dict[str, Any],
     prices: dict[str, Any],
     cache: ObjectiveCache | None,
+    fuel_model: FuelModel | None = None,
 ) -> dict[tuple[str, int], _SlotCostTable]:
     """Price every separable-field combination at every vessel-year, once.
 
@@ -245,8 +248,17 @@ def _slot_cost_tables(
                 borrow_election=False,
                 **combo,
             )
-            combos.append(combo)
-            costs.append(slot_local_total_usd(gene, vessel, fleet, regulations, prices, cache=cache))
+            cost = slot_local_total_usd(gene, vessel, fleet, regulations, prices, fuel_model, cache=cache)
+            # Route and speed are separate qudit registers but annual-service
+            # feasibility couples them.  The observed genome is repaired at
+            # the same boundary as GA; here, exclude impossible combinations
+            # from the mean-field prior rather than contaminating its
+            # temperature/probabilities with infinity.
+            if math.isfinite(cost):
+                combos.append(combo)
+                costs.append(cost)
+        if not costs:
+            raise ValueError(f"no feasible separable options for {vessel['vessel_id']} in {year}")
         # Same temperature idiom `mps_exposure` already uses for turning a
         # spread of costs into a distribution: the spread itself sets the
         # scale, so no absolute dollar constant has to be invented.
@@ -375,11 +387,11 @@ def _warm_start_population(
         _bias_toward_genome(individual, seed_genome, weight=rng.uniform(0.35, 0.7))
 
 
-def _observe(individual: QuantumIndividual, rng: random.Random) -> Genome:
+def _observe(individual: QuantumIndividual, fleet: dict[str, Any], rng: random.Random) -> Genome:
     """Collapse every register in `individual` to one classical genome, by
     sampling from each register's own probability vector. Structurally
-    feasible by construction: every domain came from `_domains_for_slot`,
-    the same menu/constraint sources `genome.py` uses."""
+    feasible after the same route-capacity repair used by GA genome
+    operators. Every sampled field still came from its own legal domain."""
     genome: Genome = []
     for (vessel_id, year), registers in individual.items():
         values = {}
@@ -397,7 +409,7 @@ def _observe(individual: QuantumIndividual, rng: random.Random) -> Genome:
                 borrow_election=values["borrow_election"],
             )
         )
-    return genome
+    return repair_capacity_coverage(genome, fleet)
 
 
 def _genome_key(genome: Genome) -> tuple:
@@ -525,13 +537,16 @@ def run_qiea(
     rotation_learning_rate_end: float | None = _DEFAULT_ROTATION_LEARNING_RATE_END,
     elite_archive_size: int = _DEFAULT_ELITE_ARCHIVE_SIZE,
     mutation_prob: float = 0.02,
+    fuel_model: FuelModel | None = None,
     seed_genome: Genome | None = None,
     reference_genome: Genome | None = None,
     mean_field_init: bool = True,
     polish: bool = True,
+    polish_max_sweeps: int = 6,
+    scorer: PlanScorer | None = None,
 ) -> SolverResult:
     """Evolve a population of quantum individuals to (approximately)
-    minimize total fleet cost — the QIEA counterpart of `solver.run_ga`,
+    minimize the supplied scorer (total fleet cost by default) — the QIEA counterpart of `solver.run_ga`,
     same signature shape and same `SolverResult` return type so it is
     callable anywhere `run_ga` is.
 
@@ -556,9 +571,10 @@ def run_qiea(
     """
     rng = random.Random(seed)
     cache = ObjectiveCache()
+    scorer = scorer or PlanScorer()
 
     if mean_field_init:
-        tables = _slot_cost_tables(fleet, regulations, prices, cache)
+        tables = _slot_cost_tables(fleet, regulations, prices, cache, fuel_model)
         population = [
             _mean_field_individual(fleet, tables, rng.uniform(*_MEAN_FIELD_TEMPERATURE_RANGE))
             for _ in range(population_size)
@@ -571,20 +587,35 @@ def run_qiea(
 
     archive = _EliteArchive(max_size=max(elite_archive_size, 1))
     best_genome: Genome | None = None
-    best_total_usd = float("inf")
+    best_score = float("inf")
 
     for generation in range(n_generations):
         learning_rate = _annealed_learning_rate(
             rotation_learning_rate, rotation_learning_rate_end, generation, n_generations
         )
 
-        observed = [_observe(individual, rng) for individual in population]
-        totals = [evaluate(genome, fleet, regulations, prices, cache=cache).total_usd for genome in observed]
-        archive.offer(observed, totals)
+        observed = [_observe(individual, fleet, rng) for individual in population]
+        # A warm start should preserve its known feasible candidate at least
+        # once.  Biasing probability registers alone can otherwise fail to
+        # observe it, which is unacceptable for a hard capped objective where
+        # that seed is the proof a feasible candidate exists.
+        if generation == 0 and seed_genome is not None:
+            observed[0] = list(seed_genome)
+        scores = [
+            scorer.score(
+                genome,
+                evaluate(genome, fleet, regulations, prices, fuel_model, cache=cache),
+                fleet,
+                regulations,
+                fuel_model,
+            )
+            for genome in observed
+        ]
+        archive.offer(observed, scores)
 
-        generation_best_index = min(range(len(totals)), key=lambda i: totals[i])
-        if totals[generation_best_index] < best_total_usd:
-            best_total_usd = totals[generation_best_index]
+        generation_best_index = min(range(len(scores)), key=lambda i: scores[i])
+        if scores[generation_best_index] < best_score:
+            best_score = scores[generation_best_index]
             best_genome = observed[generation_best_index]
 
         for individual in population:
@@ -600,20 +631,24 @@ def run_qiea(
             regulations,
             prices,
             rng,
+            fuel_model=fuel_model,
+            max_sweeps=polish_max_sweeps,
             reference_genome=reference_genome if reference_genome is not None else seed_genome,
             cache=cache,
+            scorer=scorer,
         )
         # `<=`: the canonicalization pass returns an equal-cost plan on
         # purpose (see `solver._canonicalize_against`), and that is the plan
         # worth keeping.
-        if polished_total <= best_total_usd + DEGENERATE_COST_TOLERANCE_USD:
+        if polished_total <= best_score + DEGENERATE_COST_TOLERANCE_USD:
             best_genome = polished_genome
-            best_total_usd = polished_total
+            best_score = polished_total
 
-    breakdown = evaluate(best_genome, fleet, regulations, prices, cache=cache)
+    breakdown = evaluate(best_genome, fleet, regulations, prices, fuel_model, cache=cache)
     return SolverResult(
         best_genome=best_genome,
         best_total_usd=breakdown.total_usd,
         best_breakdown=breakdown,
         generations_run=n_generations,
+        best_score=scorer.score(best_genome, breakdown, fleet, regulations, fuel_model),
     )

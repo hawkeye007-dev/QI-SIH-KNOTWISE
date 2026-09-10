@@ -163,10 +163,18 @@ class TestPhysicalAndEconomicData:
             assert defaults["fixed_opex_usd_per_year"] > 0, band
             assert defaults["charter_premium_usd_per_sea_day"] > 0, band
 
-    def test_every_route_has_distance_and_demand_floor(self, fleet):
+    def test_every_route_has_annual_service_and_cargo_inputs(self, fleet):
         for route_id, route in fleet["routes"].items():
-            assert route["distance_nm"] > 0, route_id
-            assert route["min_capacity_dwt_required"] > 0, route_id
+            assert route["annual_transit_distance_nm"] > 0, route_id
+            assert route["annual_port_service_days"] >= 0, route_id
+            assert 0 < route["payload_utilization_fraction"] <= 1, route_id
+            assert 0 < route["laden_distance_fraction"] <= 1, route_id
+            assert route["annual_cargo_demand_tonne_nm"] > 0, route_id
+
+    def test_every_band_has_an_annual_service_allowance(self, fleet):
+        for band, defaults in fleet["vessel_class_defaults"].items():
+            assert defaults["annual_service_available_days"] > 0, band
+            assert defaults["annual_maintenance_days"] >= 0, band
 
     def test_fuel_properties_cover_all_eight_canonical_fuels(self, fleet):
         expected = {
