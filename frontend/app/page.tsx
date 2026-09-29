@@ -21,6 +21,12 @@ function HomeContent({ data }: { data: DemoData }) {
   const deepestMix = cut ? mix.find(point => point.price === cut.point.price_usd_per_tco2e) : null;
   const delta = climateDelta(data, closest);
   const predictor = data.fuel_predictor_benchmark;
+  const plans = data.comparable_recommendations?.alternatives ?? [];
+  const cheapest = plans.find(plan => plan.id === 'cheapest');
+  const greenest = plans.find(plan => plan.id === 'greenest');
+  const capCut = cheapest && greenest
+    ? 1 - greenest.metrics.lifecycle_emissions_tco2e / cheapest.metrics.lifecycle_emissions_tco2e
+    : null;
 
   return (
     <main className={styles.overview}>
@@ -52,6 +58,7 @@ function HomeContent({ data }: { data: DemoData }) {
               <div className={styles.barLabel}><span>Lowest emissions / ${cut.point.price_usd_per_tco2e} per tonne</span><strong>{ktCO2e(cut.point.metrics.lifecycle_emissions_tco2e)}</strong></div>
               <div className={styles.barTrack}><span className={styles.cleanBar} style={{width: `${cut.point.metrics.lifecycle_emissions_tco2e / baseline.metrics.lifecycle_emissions_tco2e * 100}%`}} /></div>
             </div>
+            {capCut && <p className={styles.resultNote}>From carbon pricing alone. Adding an emissions cap goes further: the Greenest plan emits {pct(capCut, 0)} less than the Cheapest.</p>}
             <Link href="/sensitivity" className={styles.resultLink}>Inspect the carbon-price sweep <ArrowRightIcon size={17} /></Link>
           </> : <p>Emissions comparison is unavailable in this dataset.</p>}
         </aside>
@@ -60,6 +67,7 @@ function HomeContent({ data }: { data: DemoData }) {
       <section className={styles.proofStrip} aria-label="Supporting results">
         <Link href="/fuels"><span className={styles.eyebrow}>Fuel transition</span><strong>{baselineMix && deepestMix && baselineMix.totalSlots > 0 && deepestMix.totalSlots > 0 ? `${pct(baselineMix.lowCarbonSlots / baselineMix.totalSlots, 0)} → ${pct(deepestMix.lowCarbonSlots / deepestMix.totalSlots, 0)}` : 'Unavailable'}</strong><span>Low-carbon vessel-years, baseline to lowest-emissions plan <ArrowRightIcon size={16} /></span></Link>
         <Link href="/engine"><span className={styles.eyebrow}>Solver advantage</span><strong>{scaleSummary ? `${pct(scaleSummary.minGainFraction)}–${pct(scaleSummary.maxGainFraction)}` : 'Unavailable'}</strong><span>Lower cost than a classical genetic algorithm at matched compute <ArrowRightIcon size={16} /></span></Link>
+        <Link href="/prediction"><span className={styles.eyebrow}>Fuel prediction</span><strong>{predictor.available ? `${predictor.best_arm_mape_percent.toFixed(2)}%` : 'Unavailable'}</strong><span>Mean error on ships held out of training <ArrowRightIcon size={16} /></span></Link>
         <Link href="/exposure"><span className={styles.eyebrow}>Regulatory exposure</span><strong>{inrCrore(data.exposure.plan_spread.spread_inr)}</strong><span>Fleet cost spread across regulatory scenarios <ArrowRightIcon size={16} /></span></Link>
       </section>
 
@@ -82,13 +90,6 @@ function HomeContent({ data }: { data: DemoData }) {
         <MapView routesGeo={data.routes_geo} currentConfig={currentConfig} baselineConfig={baselineConfig} vessels={data.fleet.vessels} />
       </section>
 
-      <section className={styles.method} aria-labelledby="method-title">
-        <div className={styles.methodIntro}><p className={styles.eyebrow}>Behind the decisions</p><h2 id="method-title">Engineering you can interrogate.</h2><p>Predict fuel consumption. Search fleet-wide decisions. Evaluate each plan against IMO NZF, CII, FuelEU Maritime and EU ETS.</p><Link href="/guide" className={styles.textLink}>How to read the platform <ArrowRightIcon size={16} /></Link></div>
-        <div className={styles.evidenceList}>
-          <Link href="/prediction"><div><span className={styles.eyebrow}>Fuel consumption prediction</span><h3>{predictor.available ? `${predictor.best_arm_mape_percent.toFixed(2)}% mean prediction error` : 'Explore the prediction models'}</h3><p>Four models evaluated by holding out an entire vessel at a time. Each test ship is unseen during training.</p></div><ArrowRightIcon size={22} /></Link>
-          <Link href="/engine"><div><span className={styles.eyebrow}>Quantum-inspired optimization</span><h3>{scaleSummary ? `Lower cost in ${scaleSummary.totalWins} of ${scaleSummary.totalRuns} paired runs` : 'Explore the solver benchmark'}</h3><p>{scaleSummary ? `Benchmarked on ${scaleSummary.smallestFleet}–${scaleSummary.largestFleet} vessels with matched population, generations and polish budget.` : 'Compare the quantum-inspired search with a classical genetic algorithm.'}</p></div><ArrowRightIcon size={22} /></Link>
-        </div>
-      </section>
       <div className={styles.closing}><p>See the trade-off. Choose the plan.</p><Link href="/plans" className={styles.primary}>Compare the three fleet plans <ArrowRightIcon size={18} /></Link></div>
     </main>
   );

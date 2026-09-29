@@ -17,14 +17,14 @@ export const FUEL_NAMES: Record<string, string> = {
 };
 
 export const FUEL_NOTES: Record<string, string> = {
-  hfo_scrubber: 'Heavy fuel oil with an exhaust scrubber — the incumbent, and the cheapest per tonne.',
-  vlsfo: 'Very-low-sulphur fuel oil: the post-2020 default bunker.',
-  mgo: 'Marine gas oil — a cleaner distillate, priced well above residual fuels.',
-  lng: 'Liquefied natural gas: a real intensity cut, limited by methane slip.',
-  b30_blend: 'A 30% biofuel blend, drop-in compatible with existing engines.',
-  methanol: 'Renewable methanol — deep intensity cut, roughly half the energy per tonne.',
-  ammonia: 'Zero-carbon at the stack, the lowest well-to-wake intensity in the catalog.',
-  hydrogen: 'Green hydrogen: highest energy per tonne, hardest to bunker.',
+  hfo_scrubber: 'Incumbent; cheapest per tonne.',
+  vlsfo: 'Post-2020 default bunker.',
+  mgo: 'Cleaner distillate, costly.',
+  lng: 'Limited by methane slip.',
+  b30_blend: 'Drop-in for existing engines.',
+  methanol: 'Deep cut, half the energy per tonne.',
+  ammonia: 'Near-zero well-to-wake.',
+  hydrogen: 'Most energy per tonne, hardest to bunker.',
 };
 
 export const ROUTE_NAMES: Record<string, string> = {
@@ -40,6 +40,15 @@ export const VESSEL_CLASS_NAMES: Record<string, string> = {
   A: 'Panamax containership',
   B: 'Handysize bulk carrier',
   C: 'Coastal feeder',
+};
+
+export const DECISION_NAMES: Record<string, string> = {
+  fuel_id: 'Fuel',
+  route_id: 'Route',
+  speed_band_index: 'Speed band',
+  shore_power: 'Shore power',
+  pool_opt_in: 'FuelEU pooling',
+  borrow_election: 'FuelEU borrowing',
 };
 
 export const fuelName = (fuelId: string) => FUEL_NAMES[fuelId] ?? fuelId;

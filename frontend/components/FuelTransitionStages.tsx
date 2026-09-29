@@ -22,7 +22,7 @@ export function FuelTransitionStages({ data }: { data: DemoData }) {
 
   return (
     <div className={styles.stages}>
-      <div className={styles.intro}><div><span className="report-eyebrow">The transition, simplified</span><h2>{stages.length} fuel mixes across {mix.length} tested prices.</h2></div><p>Read from lower to higher carbon prices. Each column groups consecutive tested prices with the same fuel mix; other operating decisions may still change.</p></div>
+      <div className={styles.intro}><div><span className="report-eyebrow">The transition, simplified</span><h2>{stages.length} fuel mixes across {mix.length} tested prices.</h2></div><p>Each column groups tested carbon prices that share the same fuel mix.</p></div>
       <ol className={styles.grid} style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(0, 1fr))` }}>
         {stages.map((stage, index) => {
           const previous = stages[index - 1];
@@ -34,11 +34,11 @@ export function FuelTransitionStages({ data }: { data: DemoData }) {
               const share = stage.total > 0 ? count / stage.total * 100 : 0;
               return <div key={id} className={styles.fuel}><dt>{fuelName(id)}</dt><dd><strong>{share.toFixed(0)}%</strong><span>{count} vessel-years</span></dd><div className={styles.track} aria-hidden="true"><span style={{width:`${share}%`,background:seriesColor(fuelIndex)}} /></div></div>;
             })}</dl>
-            <p className={styles.caption}>{index === 0 ? 'The reference mix before carbon pricing changes fuel choices.' : entering.length ? `${entering.map(fuelName).join(', ')} is first elected at $${stage.start}/t.` : `The fuel mix first changes at the tested price of $${stage.start}/t.`}</p>
+            {entering.length > 0 && <p className={styles.caption}>{entering.map(fuelName).join(', ')} is first elected at ${stage.start}/t.</p>}
           </li>;
         })}
       </ol>
-      <p className={styles.note}>Shares count vessel-years, not fuel mass. One vessel-year is one vessel’s fuel choice for one year. Ranges describe tested prices only; thresholds between sampled prices are not inferred.</p>
+      <p className={styles.note}>Shares count vessel-years (one vessel’s fuel for one year), not fuel mass.</p>
     </div>
   );
 }

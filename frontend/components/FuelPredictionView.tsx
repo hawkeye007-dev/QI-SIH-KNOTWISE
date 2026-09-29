@@ -23,6 +23,18 @@ const ARM_COLORS: Record<FuelPredictorArmId, string> = {
   tensor_train: seriesColor(3),
 };
 
+/** What each model sees. Speed, vessel type and route/fuel are direct inputs;
+ *  weather and hull condition vary in the training telemetry but are not
+ *  observable at planning time, so the models learn their average effect. */
+const INPUT_FEATURES = [
+  { name: 'Speed', source: 'model input', role: 'Cruising speed in knots; fuel burn rises roughly with its cube.' },
+  { name: 'Vessel type', source: 'model input', role: 'Class (containership, bulk carrier, feeder): hull, engine and DWT.' },
+  { name: 'Load', source: 'via route', role: 'Fixed per route by its payload utilisation and laden share; enters through the route input.' },
+  { name: 'Route, fuel, year', source: 'model input', role: 'Distance, fuel energy content and the year of operation.' },
+  { name: 'Weather', source: 'in telemetry', role: 'Sea-state index in the telemetry; unknown years ahead, so learned as an average.' },
+  { name: 'Hull fouling', source: 'in telemetry', role: 'Days since drydock in the telemetry; learned as an average effect.' },
+];
+
 export function FuelPredictionView({ data }: { data: DemoData }) {
   const benchmark = data.fuel_predictor_benchmark;
 
@@ -47,10 +59,8 @@ export function FuelPredictionView({ data }: { data: DemoData }) {
     <div className="page-shell">
       <PageHeader category="Prediction" title="Better fuel estimates. Tested vessel by vessel.">
         <p className="mt-2 text-base leading-relaxed text-[var(--text-secondary)]">
-          A naval-architecture power curve gets the leading term of fuel consumption right and then stops: it
-          has no way to see hull fouling since the last drydock, or the added resistance a vessel meets in a
-          seaway. Four models compete to close that residual, each validated by holding out one entire vessel
-          at a time — so no model is ever scored on a ship it learned from.
+          A physics power curve gets fuel burn mostly right but misses hull fouling and sea state. Four models
+          learn that residual, each tested on a vessel it never saw in training.
         </p>
       </PageHeader>
 
@@ -93,15 +103,31 @@ export function FuelPredictionView({ data }: { data: DemoData }) {
         </div>
       </section>
 
+      {/* Input features */}
+      <section className="metric-card mb-5" aria-label="Input features">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--text-primary)]">Input features</h2>
+        <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+          {INPUT_FEATURES.map(feature => (
+            <div key={feature.name} className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="font-semibold text-[var(--text-primary)]">{feature.name}</span>
+                <span className={`text-xs ${feature.source === 'model input' ? 'text-[var(--success)]' : 'text-[var(--text-tertiary)]'}`}>
+                  {feature.source}
+                </span>
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{feature.role}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* Per-vessel dot plot */}
       <section className="metric-card mb-5" aria-label="Per-vessel prediction error">
         <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--text-primary)]">
           Error on every held-out vessel
         </h2>
         <p className="mb-5 mt-1 max-w-3xl text-sm leading-relaxed text-[var(--text-secondary)]">
-          One row per vessel, each scored by models that never saw it during training. A mean is easy to win on
-          one lucky fold — what matters operationally is whether a model is dependable on <em>every</em> ship,
-          which is what the horizontal spread within a row shows.
+          One row per held-out vessel. A dependable model stays low on <em>every</em> ship, not just on average.
         </p>
         <DotPlot
           categories={vessels}
@@ -122,8 +148,7 @@ export function FuelPredictionView({ data }: { data: DemoData }) {
         <div className="border-b border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-[var(--text-secondary)]">Model comparison</h2>
           <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-            Averaged over all {benchmark.n_folds} leave-one-vessel-out folds. The worst-fold column is the one an
-            operator would actually care about.
+            Averaged over {benchmark.n_folds} leave-one-vessel-out folds. Worst fold matters most to an operator.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -170,43 +195,25 @@ export function FuelPredictionView({ data }: { data: DemoData }) {
       </section>
 
       {/* Findings */}
-      <div className="grid gap-5 lg:grid-cols-2">
-        <section className="metric-card" aria-label="Tensor-train finding">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--text-primary)]">
-            The tensor-train model earns its place
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-            The tensor-train arm is the quantum-inspired model here: it compresses an empirical residual table
-            over the (class, route, fuel, speed) grid into a chain of three-index cores via singular-value
-            decomposition, then predicts from the reconstructed, denoised table. It matches LightGBM&apos;s
-            accuracy to within {Math.abs(arms.tensor_train.mean_mape_percent - arms.lightgbm.mean_mape_percent).toFixed(2)} of
-            a percentage point ({arms.tensor_train.mean_mape_percent.toFixed(2)}% against{' '}
-            {arms.lightgbm.mean_mape_percent.toFixed(2)}%), with the best single-fold result of any model
-            ({arms.tensor_train.best_fold_mape_percent.toFixed(2)}%) — and fits in{' '}
-            {arms.tensor_train.fit_seconds_total.toFixed(2)}s against LightGBM&apos;s {arms.lightgbm.fit_seconds_total.toFixed(2)}s.
-          </p>
-        </section>
-
-        <section className="metric-card" aria-label="Stability finding">
-          <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--text-primary)]">
-            Why the neural net is not the answer
-          </h2>
-          <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-            The MLP posts a {arms.mlp.mean_mape_percent.toFixed(2)}% mean but{' '}
-            {arms.mlp.worst_fold_mape_percent.toFixed(2)}% on its worst vessel — a{' '}
-            {stability('mlp').toFixed(1)}-point spread against LightGBM&apos;s {stability('lightgbm').toFixed(1)} and
-            the tensor-train&apos;s {stability('tensor_train').toFixed(1)}. A model that is occasionally wrong by
-            13% on one ship cannot be trusted to price that ship&apos;s compliance exposure. Structured methods
-            win here on dependability, not just on average accuracy, and that is the property the fleet
-            optimizer needs.
-          </p>
-        </section>
-      </div>
+      <ul className="metric-card space-y-2 text-sm leading-relaxed text-[var(--text-secondary)]" aria-label="Findings">
+        <li>
+          <strong className="text-[var(--text-primary)]">Tensor-train (quantum-inspired):</strong> compresses the
+          residual table over class, route, fuel and speed via SVD. {arms.tensor_train.mean_mape_percent.toFixed(2)}% error
+          against LightGBM&apos;s {arms.lightgbm.mean_mape_percent.toFixed(2)}%, best single fold
+          ({arms.tensor_train.best_fold_mape_percent.toFixed(2)}%), fits in {arms.tensor_train.fit_seconds_total.toFixed(2)}s.
+        </li>
+        <li>
+          <strong className="text-[var(--text-primary)]">Neural net rejected:</strong> {arms.mlp.mean_mape_percent.toFixed(2)}% mean
+          but {arms.mlp.worst_fold_mape_percent.toFixed(2)}% on its worst vessel, too unreliable to price one ship&apos;s
+          compliance.
+        </li>
+      </ul>
 
       <p className="mt-5 font-mono text-xs text-[var(--text-tertiary)]">
         Leave-one-vessel-out cross-validation · {benchmark.n_samples.toLocaleString()} samples ·{' '}
         {benchmark.samples_per_vessel_year} per vessel-year · deployed model:{' '}
-        {ARM_LABELS[benchmark.demo_built_with_predictor as FuelPredictorArmId] ?? benchmark.demo_built_with_predictor}
+        {ARM_LABELS[benchmark.demo_built_with_predictor as FuelPredictorArmId] ?? benchmark.demo_built_with_predictor} ·
+        trained and tested on synthetic telemetry
       </p>
     </div>
   );

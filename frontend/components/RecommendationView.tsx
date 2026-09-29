@@ -2,12 +2,13 @@
 
 import { PageHeader } from './PageHeader';
 import React, { FormEvent, useState } from 'react';
-import { CheckCircleIcon, InfoIcon } from '@phosphor-icons/react';
+import { CheckCircleIcon, DownloadSimpleIcon, InfoIcon } from '@phosphor-icons/react';
 import { DataGate } from '@/components/DataGate';
 import { ComparableAlternative, ComparableRecommendations, DemoData } from '@/types/demo';
 import { abatementLadder } from '@/lib/planAnalytics';
 import { FrontierChart, Legend, seriesColor } from '@/components/Charts';
 import { ktCO2e, kTonnes, pct, usdM } from '@/lib/format';
+import { downloadFile, plansCsv, plansReportHtml } from '@/lib/report';
 
 const PLAN_COLORS: Record<ComparableAlternative['id'], string> = {
   cheapest: seriesColor(0),
@@ -21,17 +22,6 @@ const PLAN_BLURB: Record<ComparableAlternative['id'], string> = {
   greenest: 'Lowest lifecycle GHG the fleet can reach at all.',
 };
 
-const decisionLabel: Record<string, string> = {
-  fuel_id: 'fuel', route_id: 'route', speed_band_index: 'speed band', shore_power: 'shore power',
-  pool_opt_in: 'FuelEU pool', borrow_election: 'FuelEU borrowing',
-};
-
-const readableValue = (value: unknown) => {
-  if (typeof value === 'boolean') return value ? 'enabled' : 'not elected';
-  if (typeof value === 'string') return value.replaceAll('_', ' ');
-  return String(value);
-};
-
 const signedMoney = (value: number) =>
   value < 0 ? `${usdM(Math.abs(value))} credit` : `${usdM(value)} cost`;
 
@@ -43,7 +33,6 @@ function PlanCard({
   reference: ComparableAlternative;
 }) {
   const { metrics } = plan;
-  const firstChange = plan.change_summary.examples[0];
   const costDelta = metrics.total_usd - reference.metrics.total_usd;
   const emissionsDelta = metrics.lifecycle_emissions_tco2e - reference.metrics.lifecycle_emissions_tco2e;
   const isReference = plan.id === reference.id;
@@ -112,15 +101,6 @@ function PlanCard({
           ? 'Reference plan for this comparison.'
           : `${plan.change_summary.changed_vessel_years} vessel-year decisions differ from Cheapest.`}
       </p>
-      {firstChange && (
-        <p className="mt-2 border-l-2 border-[var(--border-strong)] pl-2 text-xs leading-relaxed text-[var(--text-secondary)]">
-          <span className="font-medium text-[var(--text-primary)]">For example:</span>{' '}
-          {firstChange.vessel_id} in {firstChange.year} changes{' '}
-          {Object.entries(firstChange.changes)
-            .map(([field, value]) => `${decisionLabel[field] ?? field} from ${readableValue(value.from)} to ${readableValue(value.to)}`)
-            .join('; ')}.
-        </p>
-      )}
     </article>
   );
 }
@@ -155,11 +135,9 @@ function TradeOffDeck({ recommendations, metadata }: { recommendations: Comparab
     <div className="page-shell pt-6">
       <PageHeader category="Plans" title="Choose your balance of cost and carbon.">
         <p className="mt-2 text-base leading-relaxed text-[var(--text-secondary)]">
-          Three plans, each independently optimized and then re-scored under one identical operating scenario:{' '}
-          ${scenario.effective_carbon_price_usd_per_tco2e}/tCO₂e carbon price,{' '}
-          {(scenario.cargo_demand_multiplier ?? 1).toFixed(1)}× annual cargo demand, same fleet, same fuel prices.
-          That shared basis is what makes the difference between them a real trade-off rather than three
-          unrelated answers.
+          Three independently optimized plans, scored under one scenario:{' '}
+          ${scenario.effective_carbon_price_usd_per_tco2e}/tCO₂e carbon price and{' '}
+          {(scenario.cargo_demand_multiplier ?? 1).toFixed(1)}× annual cargo demand.
         </p>
       </PageHeader>
 
@@ -174,9 +152,7 @@ function TradeOffDeck({ recommendations, metadata }: { recommendations: Comparab
           The abatement curve for this fleet
         </h2>
         <p className="mb-4 mt-1 max-w-3xl text-sm leading-relaxed text-[var(--text-secondary)]">
-          Each marker is a complete five-year fleet plan. The label between two markers is the marginal
-          abatement cost of moving between them — what the next tonne of CO₂e actually costs to remove. It
-          rises steeply, which is the whole reason a fleet needs to choose rather than simply decarbonize.
+          Each marker is a complete five-year plan. Labels show what each extra tonne of CO₂e costs to remove.
         </p>
         <FrontierChart
           points={ordered.map(plan => ({
@@ -197,59 +173,19 @@ function TradeOffDeck({ recommendations, metadata }: { recommendations: Comparab
           }))}
         />
         <Legend items={ordered.map(plan => ({ label: plan.definition, color: PLAN_COLORS[plan.id] }))} />
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-2">
-          {steps.map(step => (
-            <div key={`${step.from.id}-${step.to.id}`} className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] p-3">
-              <div className="text-xs uppercase tracking-wide text-[var(--text-tertiary)]">
-                {step.from.definition} → {step.to.definition}
-              </div>
-              <div className="mt-1 font-mono text-xl font-bold text-[var(--text-primary)]">
-                ${Math.round(step.usdPerTonneAbated).toLocaleString()}/tCO₂e
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
-                {usdM(step.deltaCostUsd, 1)} more, {ktCO2e(step.deltaEmissionsTco2e, 0)} removed.
-              </p>
-            </div>
-          ))}
-        </div>
       </section>
 
-      {/* Shared basis */}
-      <section aria-label="Shared assumptions" className="mb-6 grid overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] sm:grid-cols-3">
-        <div className="p-4 sm:border-r sm:border-[var(--border)]">
-          <div className="text-sm font-semibold text-[var(--text-primary)]">Shared operating inputs</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-            ${scenario.effective_carbon_price_usd_per_tco2e}/tCO₂e ·{' '}
-            {(scenario.cargo_demand_multiplier ?? 1).toFixed(1)}× annual cargo demand · identical fleet and bunker prices.
-          </p>
-        </div>
-        <div className="border-t border-[var(--border)] p-4 sm:border-t-0 sm:border-r">
-          <div className="text-sm font-semibold text-[var(--text-primary)]">How it was solved</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-            {provenance.optimizer.toUpperCase()} optimizer · {provenance.fuel_model.toUpperCase()} fuel estimator ·
-            2026–2030 horizon.
-          </p>
-        </div>
-        <div className="border-t border-[var(--border)] p-4 sm:border-t-0">
-          <div className="text-sm font-semibold text-[var(--text-primary)]">What was proven</div>
-          <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-            Every plan shown clears annual cargo throughput and annual service availability on every route and
-            every year.
-          </p>
-        </div>
-      </section>
-
-
-
-      <aside className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] px-4 py-3 text-sm leading-relaxed text-[var(--text-secondary)]">
-        <strong className="text-[var(--text-primary)]">How “Balanced” is defined:</strong>{' '}
-        {recommendations.balanced_definition} Every displayed metric and feasibility check was calculated by the
-        optimizer, never re-derived in the browser.
-      </aside>
+      <p className="mb-6 text-xs leading-relaxed text-[var(--text-tertiary)]">
+        Solved with {provenance.optimizer.toUpperCase()} and the {provenance.fuel_model.toUpperCase()} fuel estimator.
+        Every plan meets annual cargo and service-day requirements on every route and year.{' '}
+        <strong className="font-medium text-[var(--text-secondary)]">Balanced:</strong> {recommendations.balanced_definition}
+      </p>
     </div>
   );
 }
+
+/** Hidden for now; set to true to show the live re-solve form again. */
+const SHOW_LIVE_RESOLVE = false;
 
 const liveApiBaseUrl = (process.env.NEXT_PUBLIC_LIVE_API_BASE_URL ?? 'http://localhost:8000').replace(/\/$/, '');
 
@@ -304,7 +240,33 @@ function Recommendations({ data }: { data: DemoData }) {
   return (
     <>
       <TradeOffDeck recommendations={recommendations} metadata={data.metadata} />
-      <div className="page-shell pb-0 pt-6">
+      <div className="page-shell pb-0 pt-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] p-4">
+          <div>
+            <h2 className="font-semibold text-[var(--text-primary)]">Export this comparison</h2>
+            <p className="mt-1 text-sm text-[var(--text-secondary)]">
+              Printable report with every vessel-year decision, or the raw decisions as CSV.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => downloadFile('knotwise-plan-report.html', plansReportHtml(recommendations, new Date()), 'text/html')}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--action-bg)] px-4 py-2 text-sm font-semibold text-[var(--action-text)] transition-colors hover:bg-[var(--action-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              <DownloadSimpleIcon size={16} weight="bold" /> Download report
+            </button>
+            <button
+              type="button"
+              onClick={() => downloadFile('knotwise-plan-decisions.csv', plansCsv(recommendations), 'text/csv')}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-4 py-2 text-sm font-semibold text-[var(--text-primary)] transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+            >
+              CSV
+            </button>
+          </div>
+        </div>
+      </div>
+      {SHOW_LIVE_RESOLVE && <div className="page-shell pb-0 pt-6">
         <form onSubmit={requestLiveScenario} className="rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] p-4">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -350,8 +312,7 @@ function Recommendations({ data }: { data: DemoData }) {
             </p>
           )}
         </form>
-      </div>
-
+      </div>}
     </>
   );
 }

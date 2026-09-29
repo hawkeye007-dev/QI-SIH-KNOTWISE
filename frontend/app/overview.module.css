@@ -29,7 +29,7 @@
 .barTrack .cleanBar { background: #aee2cc; }
 .resultLink { display: flex; justify-content: space-between; gap: 12px; border-top: 1px solid #425861; margin-top: 24px; padding-top: 18px; font-size: 12px; }
 .resultLink:hover { color: #aee2cc; }
-.proofStrip { display: grid; grid-template-columns: repeat(3, 1fr); border-top: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); padding: 26px 0; }
+.proofStrip { display: grid; grid-template-columns: repeat(4, 1fr); border-top: 1px solid var(--border-strong); border-bottom: 1px solid var(--border-strong); padding: 26px 0; }
 .proofStrip > a { padding: 0 30px; border-left: 1px solid var(--border); display: flex; flex-direction: column; }
 .proofStrip > a:first-child { padding-left: 0; border-left: 0; }
 .proofStrip > a:last-child { padding-right: 0; }
@@ -39,8 +39,8 @@
 .proofStrip a:hover strong { color: var(--accent); }
 .explore, .network { padding-top: 64px; scroll-margin-top: 85px; }
 .sectionHeading { display: grid; grid-template-columns: 1.25fr 1fr; gap: 50px; align-items: end; margin-bottom: 28px; }
-.sectionHeading h2, .method h2 { font-size: 30px; line-height: 1.2; letter-spacing: -.035em; font-weight: 500; margin-top: 12px; }
-.sectionHeading > p, .methodIntro > p:not(.eyebrow) { font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+.sectionHeading h2 { font-size: 30px; line-height: 1.2; letter-spacing: -.035em; font-weight: 500; margin-top: 12px; }
+.sectionHeading > p { font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
 .controls :global(.metric-card) { border-radius: 6px; box-shadow: none; background: var(--surface-sunken); padding: 24px; }
 .controls :global(.metric-card):hover { border-color: var(--border); box-shadow: none; }
 .controls h2 { text-transform: none; letter-spacing: -.01em; font-size: 15px; }
@@ -61,19 +61,12 @@
 .saving { border-top: 1px solid var(--border); margin: 18px 0; padding-top: 18px; }
 .saving > span { font-size: 11px; color: var(--text-secondary); }
 .saving strong { display: block; font-size: 26px; letter-spacing: -.03em; font-weight: 500; margin: 4px 0; }
+.resultNote { font-size: 12px; line-height: 1.6; opacity: .75; margin-top: 14px; }
 .saving p, .note { font-size: 11px; line-height: 1.6; color: var(--text-secondary); }
 .network :global(.leaflet-container), .network > div:last-child { border-radius: 6px; }
-.method { margin-top: 64px; border-top: 1px solid var(--border-strong); padding: 42px 0; display: grid; grid-template-columns: .85fr 1.3fr; gap: 80px; }
-.methodIntro > p:not(.eyebrow) { margin: 18px 0 22px; }
-.evidenceList > a { display: flex; align-items: center; gap: 30px; padding: 22px 0; border-bottom: 1px solid var(--border); }
-.evidenceList > a:first-child { padding-top: 0; }
-.evidenceList svg { flex-shrink: 0; }
-.evidenceList h3 { font-size: 20px; letter-spacing: -.025em; font-weight: 500; margin: 9px 0; }
-.evidenceList p { color: var(--text-secondary); font-size: 12px; line-height: 1.7; }
-.evidenceList > a:hover h3 { text-decoration: underline; text-underline-offset: 4px; }
-.closing { padding: 28px 0 0; border-top: 1px solid var(--border-strong); display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.closing { margin-top: 64px; padding: 28px 0 0; border-top: 1px solid var(--border-strong); display: flex; justify-content: space-between; align-items: center; gap: 20px; }
 .closing p { font-size: 23px; letter-spacing: -.03em; }
-@media (max-width: 1000px) { .hero { gap: 28px; } .scope { gap: 20px; } .method { gap: 40px; } .sectionHeading { gap: 30px; } }
+@media (max-width: 1000px) { .proofStrip { grid-template-columns: repeat(2, 1fr); row-gap: 24px; } .proofStrip > a:nth-child(odd) { padding-left: 0; border-left: 0; } .hero { gap: 28px; } .scope { gap: 20px; } .sectionHeading { gap: 30px; } }
 @media (max-width: 767px) {
   .overview { padding: 0 20px 32px; }
   .masthead { font-size: 9px; padding: 22px 0; }
@@ -86,11 +79,10 @@
   .proofStrip > a, .proofStrip > a:first-child, .proofStrip > a:last-child { padding: 20px 0; border-left: 0; border-bottom: 1px solid var(--border); }
   .proofStrip > a:last-child { border-bottom: 0; }
   .proofStrip strong { font-size: 29px; }
-  .sectionHeading, .analysis, .method { grid-template-columns: 1fr; gap: 18px; }
-  .sectionHeading h2, .method h2 { font-size: 28px; }
+  .sectionHeading, .analysis { grid-template-columns: 1fr; gap: 18px; }
+  .sectionHeading h2 { font-size: 28px; }
   .explore, .network { padding-top: 44px; }
   .controls :global(.metric-card), .fuelChart, .selected { padding: 18px; }
   .selected { border-left: 0; border-top: 1px solid var(--border); }
-  .method { margin-top: 44px; gap: 28px; }
   .closing { align-items: flex-start; flex-direction: column; }
 }

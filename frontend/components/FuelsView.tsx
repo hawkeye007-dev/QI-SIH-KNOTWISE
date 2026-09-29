@@ -7,7 +7,6 @@ import { DemoData } from '@/types/demo';
 import { fuelCatalog, fuelEntryPrices, fuelMixByPrice, deepestCut } from '@/lib/planAnalytics';
 import { FUEL_NOTES, fuelName } from '@/lib/labels';
 import { FuelTransitionStages } from './FuelTransitionStages';
-import { GainBarChart } from '@/components/Charts';
 import { ktCO2e, pct } from '@/lib/format';
 
 export function FuelsView({ data }: { data: DemoData }) {
@@ -20,21 +19,13 @@ export function FuelsView({ data }: { data: DemoData }) {
   const elected = new Set(mix.flatMap(point => Object.keys(point.counts)));
 
   const vlsfo = catalog.find(fuel => fuel.fuelId === 'vlsfo');
-  // One measure, one series, one colour: bar length already encodes the
-  // magnitude, so a per-bar hue would spend the colour channel on nothing.
-  const intensityRows = catalog.map(fuel => ({
-    label: fuelName(fuel.fuelId),
-    sublabel: elected.has(fuel.fuelId) ? 'elected in plan' : 'available, not elected',
-    value: fuel.ghgIntensity,
-  }));
 
   return (
     <div className="page-shell">
       <PageHeader category="Fuels" title="The route to cleaner fuel.">
         <p className="mt-2 text-base leading-relaxed text-[var(--text-secondary)]">
-          Eight bunker options are open to this fleet, from heavy fuel oil to green hydrogen. The optimizer is
-          free to elect any of them for any vessel-year. This page shows which ones it actually chooses, at
-          what carbon price each becomes worth paying for, and what that does to lifecycle emissions.
+          Eight fuels are open to every vessel-year. This page shows which ones the optimizer picks, and at
+          what carbon price each becomes worth it.
         </p>
       </PageHeader>
 
@@ -56,7 +47,7 @@ export function FuelsView({ data }: { data: DemoData }) {
             {cut ? ktCO2e(Math.abs(cut.deltaTco2e)) : '—'}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
-            {cut ? `${pct(Math.abs(cut.deltaFraction))} below the $0/t plan, achieved entirely through fuel, speed, route and shore-power choices.` : ''}
+            {cut ? `${pct(Math.abs(cut.deltaFraction))} below the $0/t plan, from fuel, speed, route and shore-power choices.` : ''}
           </p>
         </div>
         <div className="border-t border-[var(--success-soft-border)] p-4 sm:border-t-0">
@@ -65,7 +56,7 @@ export function FuelsView({ data }: { data: DemoData }) {
             {entry.ammonia != null ? `$${entry.ammonia}/t` : 'not elected'}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
-            The carbon price at which zero-carbon ammonia first pays for itself somewhere in this fleet.
+            Carbon price at which ammonia first pays off for a vessel.
           </p>
         </div>
       </section>
@@ -81,8 +72,7 @@ export function FuelsView({ data }: { data: DemoData }) {
             Fuel catalog and switching thresholds
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-            Well-to-wake intensity and energy content drive the compliance calculation; the bunker price drives
-            the operating cost. The last column is the answer the optimizer gives when both are weighed together.
+            Intensity drives compliance cost, bunker price drives operating cost. The last column weighs both.
           </p>
         </div>
         <div className="overflow-x-auto">
@@ -141,22 +131,6 @@ export function FuelsView({ data }: { data: DemoData }) {
         </div>
       </section>
 
-      {/* Intensity ladder */}
-      <section className="metric-card" aria-label="Fuel intensity comparison">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-[var(--text-primary)]">
-          Why the ordering is what it is
-        </h2>
-        <p className="mb-5 mt-1 text-sm leading-relaxed text-[var(--text-secondary)]">
-          Well-to-wake GHG intensity, the quantity every one of the four regimes ultimately prices. The three
-          conventional bunkers sit within a percent of each other near 91 g/MJ — switching between them buys
-          almost nothing. The gap to LNG and below is where the compliance saving actually lives.
-        </p>
-        <GainBarChart
-          rows={intensityRows}
-          formatValue={value => `${value.toFixed(1)} g/MJ`}
-          ariaLabel="Well-to-wake GHG intensity by fuel"
-        />
-      </section>
     </div>
   );
 }

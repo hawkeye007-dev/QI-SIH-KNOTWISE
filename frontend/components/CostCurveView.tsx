@@ -2,12 +2,11 @@
 
 import { PageHeader } from './PageHeader';
 import React from 'react';
-import { TrendDownIcon, TrendUpIcon } from '@phosphor-icons/react';
 import { DemoData, GridPointResult } from '@/types/demo';
 import { useAtlas } from '@/lib/AtlasContext';
 import { PriceControl } from '@/components/PriceControl';
 import { LineChart, seriesColor } from '@/components/Charts';
-import { ktCO2e, kTonnes, pct, usdM } from '@/lib/format';
+import { ktCO2e, kTonnes, usdM } from '@/lib/format';
 
 /** One panel of the small-multiple stack: a single measure against carbon
  *  price, on its own y-scale.
@@ -67,7 +66,7 @@ const MeasurePanel: React.FC<{
 };
 
 export function CostCurveView({ data }: { data: DemoData }) {
-  const { gridPoints, price, closest } = useAtlas();
+  const { gridPoints, price } = useAtlas();
 
   if (gridPoints.length < 2) {
     return (
@@ -80,7 +79,6 @@ export function CostCurveView({ data }: { data: DemoData }) {
 
   const withMetrics = gridPoints.filter(point => point.metrics);
   const hasClimate = withMetrics.length === gridPoints.length;
-  const first = gridPoints[0];
   const last = gridPoints[gridPoints.length - 1];
 
   // Where the plan stops responding: the longest run of grid points at the
@@ -97,21 +95,15 @@ export function CostCurveView({ data }: { data: DemoData }) {
   const fallFromPeak = peak.total_usd - last.total_usd;
   const tier2Price = data.sweep.scenario_ticks.find(tick => tick.scenario_id === 'approved_text')?.high_usd_per_tco2e ?? null;
 
-  const baselineEmissions = withMetrics[0]?.metrics?.lifecycle_emissions_tco2e;
-  const selectedEmissions = closest?.metrics?.lifecycle_emissions_tco2e;
-  const emissionsFalling = baselineEmissions != null && selectedEmissions != null && selectedEmissions < baselineEmissions;
-
   return (
     <div className="page-shell">
       <PageHeader category="Sensitivity" title="Follow the price. Understand the response." detail={hasPlateau ? `Plan locked in above $${plateauPrice}/t` : undefined}>
         <p className="text-base leading-relaxed text-[var(--text-secondary)]">
-          {gridPoints.length} independently optimized five-year plans, one for every carbon price on the
-          $0–$1,000/tCO₂e axis. Each measure below gets its own panel and its own scale — cost and carbon are
-          different quantities and are never overlaid on a shared frame.
+          {gridPoints.length} independently optimized five-year plans across $0–$1,000/tCO₂e, one panel per measure.
         </p>
       </PageHeader>
 
-      <PriceControl />
+      <PriceControl compact />
 
       {fallFromPeak > 0 && (
         <div className="report-insight mb-5">
@@ -120,9 +112,8 @@ export function CostCurveView({ data }: { data: DemoData }) {
             {usdM(fallFromPeak)} as fuel switching starts paying for itself
             {hasPlateau && <> and goes flat above ${plateauPrice}/t</>}.
             {hasPlateau && tier2Price != null && (
-              <> The ceiling is real, not numerical: surplus credit under the approved text is capped at the
-              Tier 2 remedial-unit price of ${tier2Price}/tCO₂e, so over-compliance stops paying beyond that
-              point.</>
+              <> Surplus credit is capped at the Tier 2 price of ${tier2Price}/tCO₂e, so over-compliance stops
+              paying beyond that.</>
             )}
           </p>
         </div>
@@ -131,7 +122,7 @@ export function CostCurveView({ data }: { data: DemoData }) {
       <div className="grid gap-5 lg:grid-cols-2">
         <MeasurePanel
           title="Total fleet cost"
-          caption="Everything the fleet spends over five years — bunkers, fixed operating cost, time cost and the compliance bill."
+          caption="Bunkers, operating cost, time cost and compliance, over five years."
           points={gridPoints}
           value={point => point.total_usd}
           format={value => usdM(value, 1)}
@@ -143,7 +134,7 @@ export function CostCurveView({ data }: { data: DemoData }) {
 
         <MeasurePanel
           title="Compliance bill"
-          caption="The CII, NZF, FuelEU Maritime and EU ETS slice alone. It turns negative once the fleet over-complies and starts earning surplus credit."
+          caption="CII, NZF, FuelEU and EU ETS combined. Negative means surplus credit earned."
           points={gridPoints}
           value={point => point.compliance_usd}
           format={value => usdM(value, 1)}
@@ -155,7 +146,7 @@ export function CostCurveView({ data }: { data: DemoData }) {
           <>
             <MeasurePanel
               title="Lifecycle GHG"
-              caption="Well-to-wake emissions of the whole plan. This is the quantity the regulations actually price, and the one the fleet is being asked to cut."
+              caption="Well-to-wake emissions of the whole plan."
               points={withMetrics}
               value={point => point.metrics!.lifecycle_emissions_tco2e}
               format={value => ktCO2e(value, 0)}
@@ -165,7 +156,7 @@ export function CostCurveView({ data }: { data: DemoData }) {
 
             <MeasurePanel
               title="Bunker mass"
-              caption="Total tonnes loaded. It moves against emissions once ammonia enters the mix — low-carbon fuels carry less energy per tonne, so a cleaner plan is a heavier one."
+              caption="Rises as ammonia enters: cleaner fuels carry less energy per tonne."
               points={withMetrics}
               value={point => point.metrics!.fuel_tonnes}
               format={value => kTonnes(value, 0)}
@@ -176,28 +167,6 @@ export function CostCurveView({ data }: { data: DemoData }) {
         )}
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--surface-sunken)] p-4 font-mono text-sm">
-        <span className="text-[var(--text-secondary)]">
-          Selected: <strong className="text-[var(--text-primary)]">${closest?.price_usd_per_tco2e ?? price}/tCO₂e</strong>
-        </span>
-        <span className="text-[var(--text-secondary)]">
-          Cost: <strong className="text-[var(--text-primary)]">{usdM(closest?.total_usd ?? first.total_usd)}</strong>
-        </span>
-        {selectedEmissions != null && (
-          <span className="flex items-center gap-1.5 text-[var(--text-secondary)]">
-            Lifecycle GHG:{' '}
-            <strong className={emissionsFalling ? 'font-bold text-[var(--success)]' : 'text-[var(--text-primary)]'}>
-              {ktCO2e(selectedEmissions)}
-            </strong>
-            {baselineEmissions != null && (
-              <span className={emissionsFalling ? 'text-[var(--success)]' : 'text-[var(--text-tertiary)]'}>
-                {emissionsFalling ? <TrendDownIcon size={14} weight="bold" className="inline" /> : <TrendUpIcon size={14} weight="bold" className="inline" />}{' '}
-                {pct(Math.abs(selectedEmissions - baselineEmissions) / baselineEmissions, 1)}
-              </span>
-            )}
-          </span>
-        )}
-      </div>
     </div>
   );
 }
