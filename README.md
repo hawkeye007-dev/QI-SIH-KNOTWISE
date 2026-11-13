@@ -1,26 +1,50 @@
 # KnotWise
 
-Quantum-Inspired Fuel Prediction and Green Fleet Optimization Under Regulatory Uncertainty
-(SIH26138 · Egreen Quanta).
+KnotWise explores lower-emission fleet plans by optimizing vessel fuel, speed, route, and shore-power choices across regulatory scenarios. It combines a Python optimization engine with a Next.js decision dashboard.
 
-The build contract lives in [`docs/PLAN.md`](docs/PLAN.md); the pooling-locality
-architecture decision it depends on is [`docs/DESIGN_NOTE_POOLING.md`](docs/DESIGN_NOTE_POOLING.md).
-Read those first — this README only covers running the code as it exists so far.
+> **Prototype:** Fleet inputs, route positions, and fuel-prediction telemetry are illustrative or synthetic. Results are for exploration, not operational decisions.
 
-## Status
+## Quick start
 
-Phase 0 (regulatory ground truth) only. See `docs/PLAN.md` §5 Track S for the full
-phase plan and `docs/scope_matrix.md` for the regime-applicability table.
-
-## Setup
+Requirements: Python 3.11+ and Node.js.
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
+# Terminal 1 — Python engine and API
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+python -m knotwise.api.server
+
+# Terminal 2 — dashboard
+cd frontend
+npm install
+npm run dev
 ```
 
-## Run tests
+Open [http://localhost:3000](http://localhost:3000). The dashboard works from bundled demo data; the API is only needed for live recommendations on **Plans**.
+
+## What’s inside
+
+- **Dashboard:** overview, plan comparison, fleet matrix, fuel analysis, sensitivity, regulatory exposure, solver, prediction, and guide pages.
+- **Optimizer:** genetic algorithm and quantum-inspired search over fleet decisions, with regulatory costs and operational constraints.
+- **Live API:** `POST http://127.0.0.1:8000/api/recommendations` accepts `carbon_price_usd_per_tco2e` (0–1000) and `cargo_demand_multiplier` (0.1–10).
+- **Demo data:** precomputed fleet plans and benchmarks in `outputs/` and `frontend/public/`.
+
+## Checks
 
 ```bash
+# From the repository root
 pytest
+
+# Frontend production build
+cd frontend && npm run build
 ```
+
+## Project layout
+
+| Path | Purpose |
+|---|---|
+| `src/knotwise/` | Fleet and regulatory data, compliance, optimization, and API |
+| `frontend/` | Next.js dashboard |
+| `outputs/` | Generated demo results and benchmark reports |
+| `tests/` | Python behavior and data-contract tests |
