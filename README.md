@@ -2,7 +2,6 @@
 
 KnotWise explores lower-emission fleet plans by optimizing vessel fuel, speed, route, and shore-power choices across regulatory scenarios. It combines a Python optimization engine with a Next.js decision dashboard.
 
-> **Prototype:** Fleet inputs, route positions, and fuel-prediction telemetry are illustrative or synthetic. Results are for exploration, not operational decisions.
 
 ## Quick start
 
